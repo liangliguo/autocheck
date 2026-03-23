@@ -121,10 +121,14 @@ def match_citation_to_reference(
     references: Iterable[ReferenceEntry],
 ) -> Optional[ReferenceEntry]:
     normalized_marker = normalize_alias(citation_marker)
+    is_numeric_marker = bool(re.fullmatch(r"\[?\d+\]?", normalized_marker))
     for reference in references:
         aliases = build_reference_aliases(reference)
         if normalized_marker in aliases:
             return reference
+
+    if is_numeric_marker:
+        return None
 
     for reference in references:
         aliases = build_reference_aliases(reference)

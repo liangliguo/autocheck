@@ -4,6 +4,8 @@ import json
 from autocheck.config.settings import AppSettings
 from autocheck.pipeline.orchestrator import AutoCheckPipeline
 from autocheck.schemas.models import VerificationLabel
+from autocheck.utils.citations import match_citation_to_reference
+from autocheck.schemas.models import ReferenceEntry
 
 
 def test_pipeline_smoke_run_without_network(tmp_path, monkeypatch) -> None:
@@ -151,3 +153,13 @@ def test_pipeline_can_limit_processed_references(tmp_path, monkeypatch) -> None:
     assert report.progress is not None
     assert report.progress.total_references == 1
     assert report.progress.total_assessments == 1
+
+
+def test_numeric_citation_matching_is_exact() -> None:
+    references = [
+        ReferenceEntry(ref_id="[1]", raw_text="[1] First ref", aliases=["[1]"]),
+        ReferenceEntry(ref_id="[13]", raw_text="[13] Thirteenth ref", aliases=["[13]"]),
+    ]
+
+    assert match_citation_to_reference("[13]", references).ref_id == "[13]"
+    assert match_citation_to_reference("[3]", references) is None
