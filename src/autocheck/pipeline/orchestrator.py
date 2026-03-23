@@ -15,6 +15,7 @@ from autocheck.schemas.models import (
     PipelineEvent,
     ParsedDocument,
     ReferenceEntry,
+    ReportProgress,
     ReportSummary,
     VerificationLabel,
     VerificationReport,
@@ -85,6 +86,28 @@ class AutoCheckPipeline:
             {"stage": "extract", "source_path": str(source.resolve())},
         )
         parsed_document = self.extractor.extract(source)
+
+        total_assessments = self._estimate_assessment_count(parsed_document)
+        unmatched_tasks, reference_tasks = self._build_assessment_tasks(parsed_document)
+        local_records: list = []
+        assessments: list = []
+
+        self.report_writer.write(
+            self._build_report_snapshot(
+                source=source,
+                parsed_document=parsed_document,
+                local_records=local_records,
+                assessments=assessments,
+                total_references=len(parsed_document.references),
+                completed_references=0,
+                total_assessments=total_assessments,
+                completed_assessments=0,
+                status="running",
+            ),
+            output_dir,
+            stem,
+            paths=paths,
+        )
         yield self._emit_event(
             paths["events"],
             "stage_completed",
@@ -95,9 +118,6 @@ class AutoCheckPipeline:
             },
         )
 
-        total_assessments = self._estimate_assessment_count(parsed_document)
-        unmatched_tasks, reference_tasks = self._build_assessment_tasks(parsed_document)
-        local_records = []
         total_references = len(parsed_document.references)
         yield self._emit_event(
             paths["events"],
@@ -118,12 +138,27 @@ class AutoCheckPipeline:
             },
         )
 
-        assessments = []
         assessment_index = 0
         for claim, marker, reference in unmatched_tasks:
             assessment = self.verifier.verify(claim, marker, reference)
             assessments.append(assessment)
             assessment_index += 1
+            self.report_writer.write(
+                self._build_report_snapshot(
+                    source=source,
+                    parsed_document=parsed_document,
+                    local_records=local_records,
+                    assessments=assessments,
+                    total_references=total_references,
+                    completed_references=len(local_records),
+                    total_assessments=total_assessments,
+                    completed_assessments=assessment_index,
+                    status="running",
+                ),
+                output_dir,
+                stem,
+                paths=paths,
+            )
             yield self._emit_event(
                 paths["events"],
                 "assessment_ready",
@@ -143,6 +178,22 @@ class AutoCheckPipeline:
             start=1,
         ):
             local_records.append(record)
+            self.report_writer.write(
+                self._build_report_snapshot(
+                    source=source,
+                    parsed_document=parsed_document,
+                    local_records=local_records,
+                    assessments=assessments,
+                    total_references=total_references,
+                    completed_references=len(local_records),
+                    total_assessments=total_assessments,
+                    completed_assessments=assessment_index,
+                    status="running",
+                ),
+                output_dir,
+                stem,
+                paths=paths,
+            )
             yield self._emit_event(
                 paths["events"],
                 "reference_processed",
@@ -158,6 +209,22 @@ class AutoCheckPipeline:
                 assessment = self.verifier.verify(claim, marker, reference)
                 assessments.append(assessment)
                 assessment_index += 1
+                self.report_writer.write(
+                    self._build_report_snapshot(
+                        source=source,
+                        parsed_document=parsed_document,
+                        local_records=local_records,
+                        assessments=assessments,
+                        total_references=total_references,
+                        completed_references=len(local_records),
+                        total_assessments=total_assessments,
+                        completed_assessments=assessment_index,
+                        status="running",
+                    ),
+                    output_dir,
+                    stem,
+                    paths=paths,
+                )
                 yield self._emit_event(
                     paths["events"],
                     "assessment_ready",
@@ -181,13 +248,23 @@ class AutoCheckPipeline:
             },
         )
 
-        summary = self._summarize(parsed_document, assessments)
+        final_report = self._build_report_snapshot(
+            source=source,
+            parsed_document=parsed_document,
+            local_records=local_records,
+            assessments=assessments,
+            total_references=total_references,
+            completed_references=len(local_records),
+            total_assessments=total_assessments,
+            completed_assessments=assessment_index,
+            status="completed",
+        )
         yield self._emit_event(
             paths["events"],
             "stage_completed",
             {
                 "stage": "verify",
-                "summary": summary.model_dump(mode="json"),
+                "summary": final_report.summary.model_dump(mode="json"),
             },
         )
 
@@ -196,22 +273,14 @@ class AutoCheckPipeline:
             "stage_started",
             {"stage": "write_report"},
         )
-        report = VerificationReport(
-            source_path=str(source.resolve()),
-            generated_at=datetime.utcnow(),
-            summary=summary,
-            parsed_document=parsed_document,
-            local_library=local_records,
-            assessments=assessments,
-        )
-        paths = self.report_writer.write(report, output_dir, stem, paths=paths)
-        self._last_run_result = (report, paths)
+        paths = self.report_writer.write(final_report, output_dir, stem, paths=paths)
+        self._last_run_result = (final_report, paths)
         yield self._emit_event(
             paths["events"],
             "report_completed",
             {
                 "stage": "write_report",
-                "summary": summary.model_dump(mode="json"),
+                "summary": final_report.summary.model_dump(mode="json"),
                 "report_paths": {key: str(value) for key, value in paths.items()},
             },
         )
@@ -241,6 +310,34 @@ class AutoCheckPipeline:
 
     def _estimate_assessment_count(self, parsed_document: ParsedDocument) -> int:
         return sum(len(claim.citation_markers) for claim in parsed_document.claims)
+
+    def _build_report_snapshot(
+        self,
+        source: Path,
+        parsed_document: ParsedDocument,
+        local_records: list,
+        assessments: list[ClaimCitationAssessment],
+        total_references: int,
+        completed_references: int,
+        total_assessments: int,
+        completed_assessments: int,
+        status: str,
+    ) -> VerificationReport:
+        return VerificationReport(
+            source_path=str(source.resolve()),
+            generated_at=datetime.utcnow(),
+            status=status,
+            progress=ReportProgress(
+                total_references=total_references,
+                completed_references=completed_references,
+                total_assessments=total_assessments,
+                completed_assessments=completed_assessments,
+            ),
+            summary=self._summarize(parsed_document, assessments),
+            parsed_document=parsed_document,
+            local_library=list(local_records),
+            assessments=list(assessments),
+        )
 
     def _emit_event(
         self,

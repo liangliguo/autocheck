@@ -109,9 +109,18 @@ class ReportSummary(BaseModel):
     not_found: int
 
 
+class ReportProgress(BaseModel):
+    total_references: int
+    completed_references: int
+    total_assessments: int
+    completed_assessments: int
+
+
 class VerificationReport(BaseModel):
     source_path: str
     generated_at: datetime
+    status: str = "completed"
+    progress: Optional[ReportProgress] = None
     summary: ReportSummary
     parsed_document: ParsedDocument
     local_library: List[LocalPaperRecord]

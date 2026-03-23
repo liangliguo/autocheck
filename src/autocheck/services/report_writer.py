@@ -58,6 +58,19 @@ class ReportWriter:
             "",
             f"- Source: `{report.source_path}`",
             f"- Generated at: `{report.generated_at.isoformat()}`",
+            f"- Status: `{report.status}`",
+        ]
+
+        if report.progress:
+            lines.extend(
+                [
+                    f"- Reference progress: `{report.progress.completed_references}/{report.progress.total_references}`",
+                    f"- Assessment progress: `{report.progress.completed_assessments}/{report.progress.total_assessments}`",
+                ]
+            )
+
+        lines.extend(
+            [
             "",
             "## Summary",
             "",
@@ -72,7 +85,8 @@ class ReportWriter:
             "",
             "## Assessments",
             "",
-        ]
+            ]
+        )
 
         for item in report.assessments:
             title = item.reference.title if item.reference and item.reference.title else "Unknown reference"
