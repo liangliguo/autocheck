@@ -4,21 +4,35 @@ import json
 from pathlib import Path
 from typing import Dict
 
-from autocheck.schemas.models import VerificationReport
+from autocheck.schemas.models import PipelineEvent, VerificationReport
 
 
 class ReportWriter:
+    def initialize_incremental_output(
+        self,
+        output_dir: str | Path,
+        stem: str,
+    ) -> Dict[str, Path]:
+        paths = self._build_paths(output_dir, stem)
+        paths["events"].write_text("", encoding="utf-8")
+        return paths
+
+    def append_event(self, events_path: str | Path, event: PipelineEvent) -> None:
+        target_path = Path(events_path)
+        with target_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event.model_dump(mode="json"), ensure_ascii=False))
+            handle.write("\n")
+
     def write(
         self,
         report: VerificationReport,
         output_dir: str | Path,
         stem: str,
+        paths: Dict[str, Path] | None = None,
     ) -> Dict[str, Path]:
-        target_dir = Path(output_dir)
-        target_dir.mkdir(parents=True, exist_ok=True)
-
-        json_path = target_dir / f"{stem}.report.json"
-        markdown_path = target_dir / f"{stem}.report.md"
+        target_paths = paths or self._build_paths(output_dir, stem)
+        json_path = target_paths["json"]
+        markdown_path = target_paths["markdown"]
 
         json_path.write_text(
             json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2),
@@ -26,7 +40,16 @@ class ReportWriter:
         )
         markdown_path.write_text(self._render_markdown(report), encoding="utf-8")
 
-        return {"json": json_path, "markdown": markdown_path}
+        return target_paths
+
+    def _build_paths(self, output_dir: str | Path, stem: str) -> Dict[str, Path]:
+        target_dir = Path(output_dir)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        return {
+            "json": target_dir / f"{stem}.report.json",
+            "markdown": target_dir / f"{stem}.report.md",
+            "events": target_dir / f"{stem}.events.jsonl",
+        }
 
     def _render_markdown(self, report: VerificationReport) -> str:
         summary = report.summary

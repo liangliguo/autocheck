@@ -108,6 +108,21 @@ uv run autocheck run ./examples/draft.pdf --skip-download
 uv run pytest
 ```
 
+## 增量返回
+
+CLI 现在会在运行过程中增量输出阶段进度，并在报告目录里同步写入一个事件流文件：
+
+```text
+<stem>.events.jsonl
+```
+
+这个文件会按行追加：
+
+- 阶段开始 / 完成
+- 每条参考文献下载结果
+- 每条 `claim x citation` 的核验结果
+- 最终报告路径和汇总信息
+
 ## 当前实现说明
 
 - 支持 PDF / TXT / MD 输入。

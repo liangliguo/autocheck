@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Iterator, Tuple
 
 from autocheck.config.settings import AppSettings
 from autocheck.extractors.document_extractor import DocumentClaimReferenceExtractor
@@ -11,6 +11,7 @@ from autocheck.pipeline.verifier import ClaimCitationVerifier
 from autocheck.repository.library import PaperLibrary
 from autocheck.schemas.models import (
     ClaimCitationAssessment,
+    PipelineEvent,
     ParsedDocument,
     ReportSummary,
     VerificationLabel,
@@ -27,6 +28,7 @@ class AutoCheckPipeline:
     def __init__(self, settings: AppSettings) -> None:
         self.settings = settings
         self.settings.ensure_directories()
+        self._last_run_result: tuple[VerificationReport, Dict[str, Path]] | None = None
 
         extract_model = (
             build_chat_model(settings, purpose="extract")
@@ -52,44 +54,168 @@ class AutoCheckPipeline:
         report_dir: str | Path | None = None,
         skip_download: bool = False,
     ) -> Tuple[VerificationReport, Dict[str, Path]]:
-        print(f"[AutoCheck] Extracting claims and references from {Path(source_path).name}...")
-        parsed_document = self.extractor.extract(source_path)
-        print(
-            "[AutoCheck] Parsed "
-            f"{len(parsed_document.claims)} claims and {len(parsed_document.references)} references."
-        )
-        print("[AutoCheck] Resolving and downloading cited references...")
-        local_records = self.reference_manager.prepare_references(
-            parsed_document.references,
+        for _event in self.run_incremental(
+            source_path=source_path,
+            report_dir=report_dir,
             skip_download=skip_download,
+        ):
+            pass
+
+        if self._last_run_result is None:
+            raise RuntimeError("Pipeline completed without producing a final result.")
+        return self._last_run_result
+
+    def run_incremental(
+        self,
+        source_path: str | Path,
+        report_dir: str | Path | None = None,
+        skip_download: bool = False,
+    ) -> Iterator[PipelineEvent]:
+        self._last_run_result = None
+        source = Path(source_path)
+        output_dir = Path(report_dir) if report_dir else self.settings.reports_dir
+        stem = slugify(source.stem, fallback="report")
+        paths = self.report_writer.initialize_incremental_output(output_dir, stem)
+
+        yield self._emit_event(
+            paths["events"],
+            "stage_started",
+            {"stage": "extract", "source_path": str(source.resolve())},
+        )
+        parsed_document = self.extractor.extract(source)
+        yield self._emit_event(
+            paths["events"],
+            "stage_completed",
+            {
+                "stage": "extract",
+                "total_claims": len(parsed_document.claims),
+                "total_references": len(parsed_document.references),
+            },
         )
 
-        print("[AutoCheck] Verifying claim-reference pairs...")
-        assessments = self._assess(parsed_document)
+        local_records = []
+        total_references = len(parsed_document.references)
+        yield self._emit_event(
+            paths["events"],
+            "stage_started",
+            {
+                "stage": "resolve_references",
+                "total_references": total_references,
+                "skip_download": skip_download,
+            },
+        )
+        for index, record in enumerate(
+            self.reference_manager.iter_prepare_references(
+                parsed_document.references,
+                skip_download=skip_download,
+            ),
+            start=1,
+        ):
+            local_records.append(record)
+            yield self._emit_event(
+                paths["events"],
+                "reference_processed",
+                {
+                    "stage": "resolve_references",
+                    "current": index,
+                    "total": total_references,
+                    "record": record.model_dump(mode="json"),
+                },
+            )
+        yield self._emit_event(
+            paths["events"],
+            "stage_completed",
+            {
+                "stage": "resolve_references",
+                "total_references": total_references,
+                "resolved": sum(1 for record in local_records if record.status in {"cached", "downloaded", "processed"}),
+                "not_found": sum(1 for record in local_records if record.status == "not_found"),
+                "skipped": sum(1 for record in local_records if record.status == "skipped"),
+            },
+        )
+
+        total_assessments = self._estimate_assessment_count(parsed_document)
+        yield self._emit_event(
+            paths["events"],
+            "stage_started",
+            {
+                "stage": "verify",
+                "total_assessments": total_assessments,
+            },
+        )
+        assessments = []
+        for index, assessment in enumerate(self._iter_assessments(parsed_document), start=1):
+            assessments.append(assessment)
+            yield self._emit_event(
+                paths["events"],
+                "assessment_ready",
+                {
+                    "stage": "verify",
+                    "current": index,
+                    "total": total_assessments,
+                    "assessment": assessment.model_dump(mode="json"),
+                },
+            )
+
+        summary = self._summarize(parsed_document, assessments)
+        yield self._emit_event(
+            paths["events"],
+            "stage_completed",
+            {
+                "stage": "verify",
+                "summary": summary.model_dump(mode="json"),
+            },
+        )
+
+        yield self._emit_event(
+            paths["events"],
+            "stage_started",
+            {"stage": "write_report"},
+        )
         report = VerificationReport(
-            source_path=str(Path(source_path).resolve()),
+            source_path=str(source.resolve()),
             generated_at=datetime.utcnow(),
-            summary=self._summarize(parsed_document, assessments),
+            summary=summary,
             parsed_document=parsed_document,
             local_library=local_records,
             assessments=assessments,
         )
+        paths = self.report_writer.write(report, output_dir, stem, paths=paths)
+        self._last_run_result = (report, paths)
+        yield self._emit_event(
+            paths["events"],
+            "report_completed",
+            {
+                "stage": "write_report",
+                "summary": summary.model_dump(mode="json"),
+                "report_paths": {key: str(value) for key, value in paths.items()},
+            },
+        )
 
-        output_dir = Path(report_dir) if report_dir else self.settings.reports_dir
-        stem = slugify(Path(source_path).stem, fallback="report")
-        print("[AutoCheck] Writing reports...")
-        paths = self.report_writer.write(report, output_dir, stem)
-        return report, paths
-
-    def _assess(self, parsed_document: ParsedDocument) -> list[ClaimCitationAssessment]:
-        assessments: list[ClaimCitationAssessment] = []
+    def _iter_assessments(self, parsed_document: ParsedDocument) -> Iterator[ClaimCitationAssessment]:
         for claim in parsed_document.claims:
             if not claim.citation_markers:
                 continue
             for marker in claim.citation_markers:
                 reference = match_citation_to_reference(marker, parsed_document.references)
-                assessments.append(self.verifier.verify(claim, marker, reference))
-        return assessments
+                yield self.verifier.verify(claim, marker, reference)
+
+    def _estimate_assessment_count(self, parsed_document: ParsedDocument) -> int:
+        return sum(len(claim.citation_markers) for claim in parsed_document.claims)
+
+    def _emit_event(
+        self,
+        events_path: Path,
+        event_name: str,
+        payload: dict,
+    ) -> PipelineEvent:
+        event = PipelineEvent(
+            event=event_name,
+            timestamp=datetime.utcnow(),
+            payload=payload,
+        )
+        self.report_writer.append_event(events_path, event)
+        return event
 
     def _summarize(
         self,

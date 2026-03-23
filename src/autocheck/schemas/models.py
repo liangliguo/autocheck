@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -116,3 +116,9 @@ class VerificationReport(BaseModel):
     parsed_document: ParsedDocument
     local_library: List[LocalPaperRecord]
     assessments: List[ClaimCitationAssessment]
+
+
+class PipelineEvent(BaseModel):
+    event: str
+    timestamp: datetime
+    payload: dict[str, Any] = Field(default_factory=dict)

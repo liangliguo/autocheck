@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable, List
+from typing import Iterable, Iterator, List
 
 import requests
 
@@ -20,6 +20,13 @@ class ReferenceManager:
         references: Iterable[ReferenceEntry],
         skip_download: bool = False,
     ) -> List[LocalPaperRecord]:
+        return list(self.iter_prepare_references(references, skip_download=skip_download))
+
+    def iter_prepare_references(
+        self,
+        references: Iterable[ReferenceEntry],
+        skip_download: bool = False,
+    ) -> Iterator[LocalPaperRecord]:
         records: List[LocalPaperRecord] = []
         for reference in references:
             existing = self.library.get(reference.ref_id)
@@ -27,20 +34,22 @@ class ReferenceManager:
                 existing.status = "cached"
                 self.library.ensure_placeholder(reference, status="cached")
                 records.append(existing)
+                yield existing
                 continue
 
             if skip_download:
-                records.append(
-                    self.library.ensure_placeholder(
-                        reference,
-                        status="skipped",
-                        note="Download skipped by user option.",
-                    )
+                record = self.library.ensure_placeholder(
+                    reference,
+                    status="skipped",
+                    note="Download skipped by user option.",
                 )
+                records.append(record)
+                yield record
                 continue
 
-            records.append(self._download_reference(reference))
-        return records
+            record = self._download_reference(reference)
+            records.append(record)
+            yield record
 
     def _download_reference(self, reference: ReferenceEntry) -> LocalPaperRecord:
         if not reference.title and not reference.arxiv_id:
