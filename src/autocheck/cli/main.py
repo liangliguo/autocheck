@@ -18,16 +18,19 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser("run", help="Run the full verification pipeline.")
     run_parser.add_argument("source", help="Path to the PDF or text manuscript.")
     run_parser.add_argument(
+        "-o",
         "--report-dir",
         default=None,
         help="Directory where JSON and Markdown reports will be written.",
     )
     run_parser.add_argument(
+        "-s",
         "--skip-download",
         action="store_true",
         help="Skip downloading cited references from remote resolvers.",
     )
     run_parser.add_argument(
+        "-n",
         "--max-references",
         type=int,
         default=None,

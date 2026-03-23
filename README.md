@@ -58,7 +58,7 @@ AUTOCHECK_OPENAI_BASE_URL=https://your-openai-compatible-endpoint/v1
 AUTOCHECK_OPENAI_WIRE_API=responses
 AUTOCHECK_OPENAI_DISABLE_RESPONSE_STORAGE=true
 AUTOCHECK_MODEL_REASONING_EFFORT=xhigh
-AUTOCHECK_ENABLE_LLM_EXTRACTION=true
+AUTOCHECK_ENABLE_LLM_EXTRACTION=false
 AUTOCHECK_ENABLE_LLM_VERIFICATION=true
 AUTOCHECK_CHAT_MODEL=gpt-5.4
 AUTOCHECK_VERIFY_MODEL=gpt-5.4
@@ -67,6 +67,14 @@ AUTOCHECK_CHUNK_SIZE=2200
 AUTOCHECK_CHUNK_OVERLAP=300
 EOF
 ```
+
+默认建议：
+
+- 默认开启 `LLM verification`
+- 默认关闭 `LLM extraction`
+- 默认模型为 `gpt-5.4`
+
+这样真实测试时不需要再额外写环境变量开关，命令会更短。
 
 如果你走 OpenAI 兼容代理，只需要改这两个值：
 
@@ -99,19 +107,19 @@ uv run pytest
 运行一个最小样例：
 
 ```bash
-uv run autocheck run tests/fixtures/sample_draft.txt --skip-download
+uv run autocheck run tests/fixtures/sample_draft.txt -s
 ```
 
 指定输出目录：
 
 ```bash
-uv run autocheck run tests/fixtures/sample_draft.txt --skip-download --report-dir /tmp/autocheck-demo
+uv run autocheck run tests/fixtures/sample_draft.txt -s -o /tmp/autocheck-demo
 ```
 
 测试时只处理前 `N` 条参考文献：
 
 ```bash
-uv run autocheck run tests/fixtures/sample_draft.txt --skip-download --max-references 2
+uv run autocheck run tests/fixtures/sample_draft.txt -s -n 2
 ```
 
 ## 增量返回
@@ -172,15 +180,13 @@ curl -L https://arxiv.org/pdf/1706.03762.pdf -o inputs/attention-is-all-you-need
 长论文建议关闭 `LLM extraction`，把模型预算留给核验阶段：
 
 ```bash
-AUTOCHECK_ENABLE_LLM_EXTRACTION=false \
 uv run autocheck run inputs/attention-is-all-you-need.pdf
 ```
 
 如果只是联调流程，建议再限制参考文献数量：
 
 ```bash
-AUTOCHECK_ENABLE_LLM_EXTRACTION=false \
-uv run autocheck run inputs/attention-is-all-you-need.pdf --max-references 5
+uv run autocheck run inputs/attention-is-all-you-need.pdf -n 5
 ```
 
 这条命令会：
@@ -212,7 +218,6 @@ PY
 
 ```bash
 OPENAI_API_KEY='' \
-AUTOCHECK_ENABLE_LLM_EXTRACTION=false \
 AUTOCHECK_ENABLE_LLM_VERIFICATION=false \
 uv run autocheck run inputs/attention-is-all-you-need.pdf
 ```
@@ -234,20 +239,19 @@ uv run autocheck run your-paper.pdf
 长论文，优先保证能跑完：
 
 ```bash
-AUTOCHECK_ENABLE_LLM_EXTRACTION=false \
 uv run autocheck run your-paper.pdf
 ```
 
 只看解析和增量输出，不下载：
 
 ```bash
-uv run autocheck run your-paper.pdf --skip-download
+uv run autocheck run your-paper.pdf -s
 ```
 
 测试阶段只跑前几条参考文献：
 
 ```bash
-uv run autocheck run your-paper.pdf --max-references 3
+uv run autocheck run your-paper.pdf -n 3
 ```
 
 ## 当前实现边界
@@ -265,6 +269,6 @@ uv run autocheck run your-paper.pdf --max-references 3
 ```bash
 uv sync --dev
 uv run pytest
-uv run autocheck run tests/fixtures/sample_draft.txt --skip-download
-AUTOCHECK_ENABLE_LLM_EXTRACTION=false uv run autocheck run inputs/attention-is-all-you-need.pdf
+uv run autocheck run tests/fixtures/sample_draft.txt -s
+uv run autocheck run inputs/attention-is-all-you-need.pdf -n 3
 ```

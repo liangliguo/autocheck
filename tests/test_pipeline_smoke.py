@@ -163,3 +163,16 @@ def test_numeric_citation_matching_is_exact() -> None:
 
     assert match_citation_to_reference("[13]", references).ref_id == "[13]"
     assert match_citation_to_reference("[3]", references) is None
+
+
+def test_settings_default_to_llm_verification_only(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("AUTOCHECK_ENABLE_LLM_EXTRACTION", raising=False)
+    monkeypatch.delenv("AUTOCHECK_ENABLE_LLM_VERIFICATION", raising=False)
+    monkeypatch.delenv("AUTOCHECK_CHAT_MODEL", raising=False)
+    monkeypatch.delenv("AUTOCHECK_VERIFY_MODEL", raising=False)
+
+    settings = AppSettings.from_env(project_root=tmp_path)
+    assert settings.enable_llm_extraction is False
+    assert settings.enable_llm_verification is True
+    assert settings.chat_model == "gpt-5.4"
+    assert settings.verify_model == "gpt-5.4"

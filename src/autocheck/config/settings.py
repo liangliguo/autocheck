@@ -48,9 +48,9 @@ class AppSettings:
             downloads_dir=data_dir / "downloads",
             processed_dir=data_dir / "processed",
             reports_dir=data_dir / "reports",
-            chat_model=os.getenv("AUTOCHECK_CHAT_MODEL", "gpt-4.1"),
+            chat_model=os.getenv("AUTOCHECK_CHAT_MODEL", "gpt-5.4"),
             extract_model=os.getenv("AUTOCHECK_EXTRACT_MODEL", ""),
-            verify_model=os.getenv("AUTOCHECK_VERIFY_MODEL", ""),
+            verify_model=os.getenv("AUTOCHECK_VERIFY_MODEL", "gpt-5.4"),
             temperature=float(os.getenv("AUTOCHECK_TEMPERATURE", "0")),
             chunk_size=int(os.getenv("AUTOCHECK_CHUNK_SIZE", "2200")),
             chunk_overlap=int(os.getenv("AUTOCHECK_CHUNK_OVERLAP", "300")),
@@ -71,7 +71,7 @@ class AppSettings:
             model_reasoning_effort=os.getenv("AUTOCHECK_MODEL_REASONING_EFFORT", ""),
             enable_llm_extraction=_get_bool_env(
                 "AUTOCHECK_ENABLE_LLM_EXTRACTION",
-                default=True,
+                default=False,
             ),
             enable_llm_verification=_get_bool_env(
                 "AUTOCHECK_ENABLE_LLM_VERIFICATION",
