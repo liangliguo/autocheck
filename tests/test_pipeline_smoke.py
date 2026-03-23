@@ -61,6 +61,18 @@ def test_pipeline_emits_incremental_events(tmp_path, monkeypatch) -> None:
     assert any(event.event == "reference_processed" for event in events)
     assert any(event.event == "assessment_ready" for event in events)
     assert events[-1].event == "report_completed"
+    first_reference_processed = next(
+        index for index, event in enumerate(events) if event.event == "reference_processed"
+    )
+    first_assessment_ready = next(
+        index for index, event in enumerate(events) if event.event == "assessment_ready"
+    )
+    resolve_completed = next(
+        index
+        for index, event in enumerate(events)
+        if event.event == "stage_completed" and event.payload["stage"] == "resolve_references"
+    )
+    assert first_reference_processed < first_assessment_ready < resolve_completed
 
     report, paths = pipeline.run(source_path=source_path, skip_download=True)
     event_lines = [

@@ -11,8 +11,10 @@ from autocheck.pipeline.verifier import ClaimCitationVerifier
 from autocheck.repository.library import PaperLibrary
 from autocheck.schemas.models import (
     ClaimCitationAssessment,
+    ClaimRecord,
     PipelineEvent,
     ParsedDocument,
+    ReferenceEntry,
     ReportSummary,
     VerificationLabel,
     VerificationReport,
@@ -93,6 +95,8 @@ class AutoCheckPipeline:
             },
         )
 
+        total_assessments = self._estimate_assessment_count(parsed_document)
+        unmatched_tasks, reference_tasks = self._build_assessment_tasks(parsed_document)
         local_records = []
         total_references = len(parsed_document.references)
         yield self._emit_event(
@@ -104,6 +108,33 @@ class AutoCheckPipeline:
                 "skip_download": skip_download,
             },
         )
+        yield self._emit_event(
+            paths["events"],
+            "stage_started",
+            {
+                "stage": "verify",
+                "total_assessments": total_assessments,
+                "mode": "streaming_by_reference",
+            },
+        )
+
+        assessments = []
+        assessment_index = 0
+        for claim, marker, reference in unmatched_tasks:
+            assessment = self.verifier.verify(claim, marker, reference)
+            assessments.append(assessment)
+            assessment_index += 1
+            yield self._emit_event(
+                paths["events"],
+                "assessment_ready",
+                {
+                    "stage": "verify",
+                    "current": assessment_index,
+                    "total": total_assessments,
+                    "assessment": assessment.model_dump(mode="json"),
+                },
+            )
+
         for index, record in enumerate(
             self.reference_manager.iter_prepare_references(
                 parsed_document.references,
@@ -122,6 +153,22 @@ class AutoCheckPipeline:
                     "record": record.model_dump(mode="json"),
                 },
             )
+
+            for claim, marker, reference in reference_tasks.get(record.ref_id, []):
+                assessment = self.verifier.verify(claim, marker, reference)
+                assessments.append(assessment)
+                assessment_index += 1
+                yield self._emit_event(
+                    paths["events"],
+                    "assessment_ready",
+                    {
+                        "stage": "verify",
+                        "current": assessment_index,
+                        "total": total_assessments,
+                        "assessment": assessment.model_dump(mode="json"),
+                    },
+                )
+
         yield self._emit_event(
             paths["events"],
             "stage_completed",
@@ -133,29 +180,6 @@ class AutoCheckPipeline:
                 "skipped": sum(1 for record in local_records if record.status == "skipped"),
             },
         )
-
-        total_assessments = self._estimate_assessment_count(parsed_document)
-        yield self._emit_event(
-            paths["events"],
-            "stage_started",
-            {
-                "stage": "verify",
-                "total_assessments": total_assessments,
-            },
-        )
-        assessments = []
-        for index, assessment in enumerate(self._iter_assessments(parsed_document), start=1):
-            assessments.append(assessment)
-            yield self._emit_event(
-                paths["events"],
-                "assessment_ready",
-                {
-                    "stage": "verify",
-                    "current": index,
-                    "total": total_assessments,
-                    "assessment": assessment.model_dump(mode="json"),
-                },
-            )
 
         summary = self._summarize(parsed_document, assessments)
         yield self._emit_event(
@@ -192,13 +216,28 @@ class AutoCheckPipeline:
             },
         )
 
-    def _iter_assessments(self, parsed_document: ParsedDocument) -> Iterator[ClaimCitationAssessment]:
+    def _build_assessment_tasks(
+        self,
+        parsed_document: ParsedDocument,
+    ) -> tuple[
+        list[tuple[ClaimRecord, str, ReferenceEntry | None]],
+        dict[str, list[tuple[ClaimRecord, str, ReferenceEntry | None]]],
+    ]:
+        unmatched_tasks: list[tuple[ClaimRecord, str, ReferenceEntry | None]] = []
+        reference_tasks: dict[str, list[tuple[ClaimRecord, str, ReferenceEntry | None]]] = {}
+
         for claim in parsed_document.claims:
             if not claim.citation_markers:
                 continue
             for marker in claim.citation_markers:
                 reference = match_citation_to_reference(marker, parsed_document.references)
-                yield self.verifier.verify(claim, marker, reference)
+                task = (claim, marker, reference)
+                if reference is None:
+                    unmatched_tasks.append(task)
+                    continue
+                reference_tasks.setdefault(reference.ref_id, []).append(task)
+
+        return unmatched_tasks, reference_tasks
 
     def _estimate_assessment_count(self, parsed_document: ParsedDocument) -> int:
         return sum(len(claim.citation_markers) for claim in parsed_document.claims)
