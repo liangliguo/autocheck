@@ -115,3 +115,39 @@ def test_partial_report_is_written_before_completion(tmp_path, monkeypatch) -> N
     assert report_payload["status"] == "running"
     assert report_payload["progress"]["completed_assessments"] >= 1
     assert len(report_payload["assessments"]) >= 1
+
+
+def test_pipeline_can_limit_processed_references(tmp_path, monkeypatch) -> None:
+    project_root = tmp_path
+    source_path = project_root / "draft.txt"
+    source_path.write_text(
+        (
+            "Claim one is supported by the first source [1].\n"
+            "Claim two is supported by the second source [2].\n\n"
+            "References\n"
+            "[1] Author A. First Paper. 2017.\n"
+            "[2] Author B. Second Paper. 2018.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("AUTOCHECK_OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+
+    settings = AppSettings.from_env(project_root=project_root)
+    pipeline = AutoCheckPipeline(settings)
+    report, _paths = pipeline.run(
+        source_path=source_path,
+        skip_download=True,
+        max_references=1,
+    )
+
+    assert len(report.parsed_document.references) == 1
+    assert report.parsed_document.references[0].ref_id == "[1]"
+    assert len(report.assessments) == 1
+    assert report.assessments[0].citation_marker == "[1]"
+    assert report.progress is not None
+    assert report.progress.total_references == 1
+    assert report.progress.total_assessments == 1

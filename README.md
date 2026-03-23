@@ -108,6 +108,12 @@ uv run autocheck run tests/fixtures/sample_draft.txt --skip-download
 uv run autocheck run tests/fixtures/sample_draft.txt --skip-download --report-dir /tmp/autocheck-demo
 ```
 
+测试时只处理前 `N` 条参考文献：
+
+```bash
+uv run autocheck run tests/fixtures/sample_draft.txt --skip-download --max-references 2
+```
+
 ## 增量返回
 
 CLI 不是等全部结束后才打印。
@@ -170,6 +176,13 @@ AUTOCHECK_ENABLE_LLM_EXTRACTION=false \
 uv run autocheck run inputs/attention-is-all-you-need.pdf
 ```
 
+如果只是联调流程，建议再限制参考文献数量：
+
+```bash
+AUTOCHECK_ENABLE_LLM_EXTRACTION=false \
+uv run autocheck run inputs/attention-is-all-you-need.pdf --max-references 5
+```
+
 这条命令会：
 
 - 解析输入论文
@@ -229,6 +242,12 @@ uv run autocheck run your-paper.pdf
 
 ```bash
 uv run autocheck run your-paper.pdf --skip-download
+```
+
+测试阶段只跑前几条参考文献：
+
+```bash
+uv run autocheck run your-paper.pdf --max-references 3
 ```
 
 ## 当前实现边界

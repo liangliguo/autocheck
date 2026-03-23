@@ -27,6 +27,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip downloading cited references from remote resolvers.",
     )
+    run_parser.add_argument(
+        "--max-references",
+        type=int,
+        default=None,
+        help="Testing helper: process only the first N parsed references and their linked checks.",
+    )
 
     return parser
 
@@ -102,6 +108,7 @@ def main() -> None:
             source_path=source_path,
             report_dir=args.report_dir,
             skip_download=args.skip_download,
+            max_references=args.max_references,
         ):
             _handle_event(event)
             if event.event == "report_completed":

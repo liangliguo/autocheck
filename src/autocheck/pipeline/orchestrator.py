@@ -56,11 +56,13 @@ class AutoCheckPipeline:
         source_path: str | Path,
         report_dir: str | Path | None = None,
         skip_download: bool = False,
+        max_references: int | None = None,
     ) -> Tuple[VerificationReport, Dict[str, Path]]:
         for _event in self.run_incremental(
             source_path=source_path,
             report_dir=report_dir,
             skip_download=skip_download,
+            max_references=max_references,
         ):
             pass
 
@@ -73,6 +75,7 @@ class AutoCheckPipeline:
         source_path: str | Path,
         report_dir: str | Path | None = None,
         skip_download: bool = False,
+        max_references: int | None = None,
     ) -> Iterator[PipelineEvent]:
         self._last_run_result = None
         source = Path(source_path)
@@ -86,6 +89,7 @@ class AutoCheckPipeline:
             {"stage": "extract", "source_path": str(source.resolve())},
         )
         parsed_document = self.extractor.extract(source)
+        parsed_document = self._apply_reference_limit(parsed_document, max_references=max_references)
 
         total_assessments = self._estimate_assessment_count(parsed_document)
         unmatched_tasks, reference_tasks = self._build_assessment_tasks(parsed_document)
@@ -115,6 +119,7 @@ class AutoCheckPipeline:
                 "stage": "extract",
                 "total_claims": len(parsed_document.claims),
                 "total_references": len(parsed_document.references),
+                "reference_limit": max_references,
             },
         )
 
@@ -307,6 +312,45 @@ class AutoCheckPipeline:
                 reference_tasks.setdefault(reference.ref_id, []).append(task)
 
         return unmatched_tasks, reference_tasks
+
+    def _apply_reference_limit(
+        self,
+        parsed_document: ParsedDocument,
+        max_references: int | None,
+    ) -> ParsedDocument:
+        if max_references is None:
+            return parsed_document
+        if max_references <= 0:
+            return ParsedDocument(
+                source_path=parsed_document.source_path,
+                body_text=parsed_document.body_text,
+                references_text=parsed_document.references_text,
+                claims=[],
+                references=[],
+            )
+        if max_references >= len(parsed_document.references):
+            return parsed_document
+
+        limited_references = parsed_document.references[:max_references]
+        filtered_claims: list[ClaimRecord] = []
+        for claim in parsed_document.claims:
+            filtered_markers = []
+            for marker in claim.citation_markers:
+                reference = match_citation_to_reference(marker, limited_references)
+                if reference is not None:
+                    filtered_markers.append(marker)
+            if filtered_markers:
+                filtered_claims.append(
+                    claim.model_copy(update={"citation_markers": filtered_markers})
+                )
+
+        return ParsedDocument(
+            source_path=parsed_document.source_path,
+            body_text=parsed_document.body_text,
+            references_text=parsed_document.references_text,
+            claims=filtered_claims,
+            references=limited_references,
+        )
 
     def _estimate_assessment_count(self, parsed_document: ParsedDocument) -> int:
         return sum(len(claim.citation_markers) for claim in parsed_document.claims)
