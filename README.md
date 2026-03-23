@@ -90,6 +90,75 @@ export HTTPS_PROXY=http://127.0.0.1:7890
 export HTTP_PROXY=http://127.0.0.1:7890
 ```
 
+## 参数列表
+
+### 命令行参数
+
+命令格式：
+
+```bash
+uv run autocheck run <source> [options]
+```
+
+- `source`
+  输入论文路径，支持 `PDF`、`TXT`、`MD`
+- `-o, --report-dir`
+  报告输出目录
+  默认值：`data/reports`
+- `-s, --skip-download`
+  跳过参考文献下载
+  默认值：关闭
+- `-n, --max-references`
+  只处理前 `N` 条参考文献以及它们关联的核验结果
+  默认值：不限制
+
+### 环境变量
+
+- `OPENAI_API_KEY`
+  OpenAI 或 OpenAI 兼容代理的 API Key
+- `AUTOCHECK_OPENAI_BASE_URL`
+  OpenAI 兼容接口地址
+  默认值：`https://ai.td.ee`
+- `AUTOCHECK_OPENAI_TIMEOUT`
+  请求超时秒数
+  默认值：`120`
+- `AUTOCHECK_OPENAI_MAX_RETRIES`
+  请求失败后的最大重试次数
+  默认值：`2`
+- `AUTOCHECK_OPENAI_WIRE_API`
+  OpenAI 接口模式
+  默认值：`responses`
+- `AUTOCHECK_OPENAI_DISABLE_RESPONSE_STORAGE`
+  是否禁用响应存储
+  默认值：`true`
+- `AUTOCHECK_MODEL_REASONING_EFFORT`
+  推理强度
+  默认值：`xhigh`
+- `AUTOCHECK_ENABLE_LLM_EXTRACTION`
+  是否用 LLM 做声明和参考文献抽取
+  默认值：`false`
+- `AUTOCHECK_ENABLE_LLM_VERIFICATION`
+  是否用 LLM 做引用核验
+  默认值：`true`
+- `AUTOCHECK_CHAT_MODEL`
+  默认聊天模型
+  默认值：`gpt-5.4`
+- `AUTOCHECK_EXTRACT_MODEL`
+  抽取阶段模型
+  默认值：空，回退到 `AUTOCHECK_CHAT_MODEL`
+- `AUTOCHECK_VERIFY_MODEL`
+  核验阶段模型
+  默认值：`gpt-5.4`
+- `AUTOCHECK_TEMPERATURE`
+  模型温度
+  默认值：`0`
+- `AUTOCHECK_CHUNK_SIZE`
+  证据切块大小
+  默认值：`2200`
+- `AUTOCHECK_CHUNK_OVERLAP`
+  证据切块重叠
+  默认值：`300`
+
 ## 常用命令
 
 安装依赖：
