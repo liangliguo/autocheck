@@ -1,105 +1,93 @@
 # AutoCheck
 
-`AutoCheck` 是一个基于 LangChain 的论文引用核验项目，目标是自动化交叉比对论文中的声明与其引用的原始文献，判断引用是否真正支撑该声明。
+`AutoCheck` 是一个基于 LangChain 的论文引用核验工具。
 
-## 能力范围
+它做的事情很具体：
 
-项目按标准流水线拆分为以下阶段：
-
-1. 逆向解析输入论文或草稿，抽取事实性声明与参考文献列表。
-2. 调用开放学术 API 自动检索并下载原始 PDF。
-3. 从草稿中提取包含引用的句子及其引用标识。
-4. 读取本地 PDF，提取为纯文本并切分为可检索证据块。
-5. 使用 LangChain 驱动长上下文模型，对声明与候选证据做严格交叉核验。
-6. 输出 JSON 与 Markdown 两种格式的验证报告。
+1. 读取论文 PDF 或草稿文本
+2. 提取带引用的声明和参考文献列表
+3. 自动检索并下载可公开获取的被引论文
+4. 把被引论文转成纯文本
+5. 对每条 `claim x citation` 做交叉核验
+6. 输出完整报告和增量事件流
 
 ## 项目结构
 
 ```text
 autocheck/
 ├── data/
-│   ├── downloads/      # 下载的原始 PDF
-│   ├── processed/      # 抽取后的文本和索引
-│   └── reports/        # JSON / Markdown 报告
+│   ├── downloads/      # 下载的参考文献 PDF
+│   ├── processed/      # 抽取后的参考文献文本和索引
+│   └── reports/        # 输出报告
+├── inputs/             # 输入论文 PDF
 ├── src/autocheck/
-│   ├── cli/            # 命令行入口
-│   ├── config/         # 配置加载
-│   ├── extractors/     # 声明、引用、参考文献抽取
-│   ├── llm/            # LangChain 模型工厂
-│   ├── pipeline/       # 主流程编排
-│   ├── prompts/        # Prompt 模板
-│   ├── repository/     # 本地文献库和缓存
-│   ├── resolvers/      # OpenAlex / arXiv 寻址下载
-│   ├── schemas/        # Pydantic 数据模型
-│   ├── services/       # 文档加载、文本切分、报告写入
-│   └── utils/          # 引用与文本工具
+├── tests/
 ├── .env.example
-└── pyproject.toml
+├── pyproject.toml
+└── uv.lock
 ```
+
+## 环境要求
+
+- Python 由 `uv` 管理
+- 推荐直接使用仓库内 `.env`
+- 默认命令全部使用 `uv run`
 
 ## 安装
 
-建议使用 `uv`：
+在项目根目录执行：
 
 ```bash
 uv sync --dev
 ```
 
-## 环境变量
+## 配置
 
-复制 `.env.example` 并设置模型参数：
+复制环境变量模板：
 
 ```bash
-export OPENAI_API_KEY="your-key"
-export AUTOCHECK_OPENAI_BASE_URL="https://ai.td.ee"
-export AUTOCHECK_OPENAI_WIRE_API="responses"
-export AUTOCHECK_OPENAI_DISABLE_RESPONSE_STORAGE="true"
-export AUTOCHECK_MODEL_REASONING_EFFORT="xhigh"
-export AUTOCHECK_CHAT_MODEL="gpt-5.4"
-export AUTOCHECK_VERIFY_MODEL="gpt-5.4"
-export AUTOCHECK_CHUNK_SIZE="2200"
-export AUTOCHECK_CHUNK_OVERLAP="300"
+cp .env.example .env
 ```
 
-如果你通过第三方 OpenAI 兼容代理访问模型，配置代理的 `base_url`：
+最小可用配置示例：
 
 ```bash
-export OPENAI_API_KEY="your-proxy-key"
-export AUTOCHECK_OPENAI_BASE_URL="https://your-proxy.example.com/v1"
-export AUTOCHECK_CHAT_MODEL="gpt-4.1"
+cat > .env <<'EOF'
+OPENAI_API_KEY=your-key
+AUTOCHECK_OPENAI_BASE_URL=https://your-openai-compatible-endpoint/v1
+AUTOCHECK_OPENAI_WIRE_API=responses
+AUTOCHECK_OPENAI_DISABLE_RESPONSE_STORAGE=true
+AUTOCHECK_MODEL_REASONING_EFFORT=xhigh
+AUTOCHECK_ENABLE_LLM_EXTRACTION=true
+AUTOCHECK_ENABLE_LLM_VERIFICATION=true
+AUTOCHECK_CHAT_MODEL=gpt-5.4
+AUTOCHECK_VERIFY_MODEL=gpt-5.4
+AUTOCHECK_TEMPERATURE=0
+AUTOCHECK_CHUNK_SIZE=2200
+AUTOCHECK_CHUNK_OVERLAP=300
+EOF
 ```
 
-如果你使用的是系统层 HTTP 转发代理，而不是 OpenAI 兼容网关，则直接设置：
+如果你走 OpenAI 兼容代理，只需要改这两个值：
 
 ```bash
-export HTTPS_PROXY="http://127.0.0.1:7890"
-export HTTP_PROXY="http://127.0.0.1:7890"
+OPENAI_API_KEY=your-proxy-key
+AUTOCHECK_OPENAI_BASE_URL=https://your-proxy.example.com/v1
 ```
 
-项目会自动读取仓库根目录下的 `.env`。`AUTOCHECK_OPENAI_BASE_URL` 优先级高于 `OPENAI_BASE_URL` 和 `OPENAI_API_BASE`。
-`AUTOCHECK_OPENAI_WIRE_API=responses` 会让 LangChain 尝试使用 OpenAI Responses API；`AUTOCHECK_MODEL_REASONING_EFFORT` 会透传为模型的 reasoning effort；`AUTOCHECK_OPENAI_DISABLE_RESPONSE_STORAGE=true` 会把请求的 `store` 参数设为 `false`。
-对长论文，建议保留 `AUTOCHECK_ENABLE_LLM_VERIFICATION=true`，但可临时把 `AUTOCHECK_ENABLE_LLM_EXTRACTION=false`，先用启发式规则抽取声明和参考文献，再把 LLM 预算集中到交叉核验阶段。
-
-未配置 `OPENAI_API_KEY` 时，项目仍可完成正则抽取、本地寻址和启发式打分，但严格的交叉推理核验会退化为词面重叠评分，不建议用于正式审稿场景。
-
-## 使用方式
-
-对论文 PDF 或纯文本草稿运行主流程：
+如果你走系统代理：
 
 ```bash
-uv run autocheck run ./examples/draft.pdf
+export HTTPS_PROXY=http://127.0.0.1:7890
+export HTTP_PROXY=http://127.0.0.1:7890
 ```
 
-指定输出目录：
+## 常用命令
+
+安装依赖：
 
 ```bash
-uv run autocheck run ./examples/draft.txt --report-dir ./data/reports
-```
-
-只做解析，不下载：
-
-```bash
-uv run autocheck run ./examples/draft.pdf --skip-download
+uv sync --dev
 ```
 
 运行测试：
@@ -108,31 +96,156 @@ uv run autocheck run ./examples/draft.pdf --skip-download
 uv run pytest
 ```
 
-## 增量返回
+运行一个最小样例：
 
-CLI 现在会在运行过程中增量输出阶段进度，并在报告目录里同步写入一个事件流文件：
-
-```text
-<stem>.events.jsonl
+```bash
+uv run autocheck run tests/fixtures/sample_draft.txt --skip-download
 ```
 
-这个文件会按行追加：
+指定输出目录：
 
-- 阶段开始 / 完成
-- 每条参考文献下载结果
-- 每条 `claim x citation` 的核验结果
-- 最终报告路径和汇总信息
+```bash
+uv run autocheck run tests/fixtures/sample_draft.txt --skip-download --report-dir /tmp/autocheck-demo
+```
 
-## 当前实现说明
+## 增量返回
 
-- 支持 PDF / TXT / MD 输入。
-- 参考文献定位优先使用 OpenAlex 开放接口，随后回退到 arXiv。
-- 引用句抽取优先使用正则；若提供 LLM，则用 LangChain 做结构化补全。
-- 核验粒度为“声明 x 引用文献”。
-- 输出包含 `strong_support`、`partial_support`、`unsupported_or_misleading`、`not_found` 四类结论。
+CLI 不是等全部结束后才打印。
 
-## 后续可扩展点
+现在会增量输出：
 
-- 接入 Crossref、Semantic Scholar、DOI 解析器。
-- 增加向量检索或 reranker，提高长文献证据召回质量。
-- 增加 Web UI 或批量任务队列。
+- 阶段开始
+- 每条参考文献处理结果
+- 每条 `claim x citation` 核验结果
+- 最终报告路径
+
+同时会生成事件流文件：
+
+```text
+data/reports/<stem>.events.jsonl
+```
+
+每一行都是一个 JSON 事件。
+
+## 输出文件
+
+每次运行会生成三类文件：
+
+```text
+data/reports/<stem>.report.json
+data/reports/<stem>.report.md
+data/reports/<stem>.events.jsonl
+```
+
+其中：
+
+- `.report.json` 是完整结构化报告
+- `.report.md` 是便于阅读的 Markdown 报告
+- `.events.jsonl` 是增量事件流
+
+## 从零开始跑真实论文
+
+以下步骤就是这次实际测试用的完整流程。
+
+### 1. 清空旧数据
+
+```bash
+rm -rf data/downloads data/processed data/reports
+mkdir -p data/downloads data/processed data/reports
+```
+
+### 2. 下载输入论文
+
+```bash
+mkdir -p inputs
+curl -L https://arxiv.org/pdf/1706.03762.pdf -o inputs/attention-is-all-you-need.pdf
+```
+
+### 3. 真实重跑
+
+长论文建议关闭 `LLM extraction`，把模型预算留给核验阶段：
+
+```bash
+AUTOCHECK_ENABLE_LLM_EXTRACTION=false \
+uv run autocheck run inputs/attention-is-all-you-need.pdf
+```
+
+这条命令会：
+
+- 解析输入论文
+- 自动下载被引论文
+- 逐条输出引用核验进度
+- 在 `data/reports/` 生成最终报告
+
+### 4. 查看结果
+
+```bash
+ls -lh data/reports
+```
+
+```bash
+python3 - <<'PY'
+import json
+from pathlib import Path
+p = Path("data/reports/attention-is-all-you-need.report.json")
+data = json.loads(p.read_text())
+print(data["summary"])
+PY
+```
+
+## 快速完成版
+
+如果你需要先快速拿到完整报告，不等整套 LLM 核验跑完，可以关闭 LLM 核验：
+
+```bash
+OPENAI_API_KEY='' \
+AUTOCHECK_ENABLE_LLM_EXTRACTION=false \
+AUTOCHECK_ENABLE_LLM_VERIFICATION=false \
+uv run autocheck run inputs/attention-is-all-you-need.pdf
+```
+
+这时：
+
+- 参考文献仍然会真实下载和预处理
+- 报告仍然会完整输出
+- 核验 verdict 改为启发式快速评分
+
+## 运行模式建议
+
+短文档：
+
+```bash
+uv run autocheck run your-paper.pdf
+```
+
+长论文，优先保证能跑完：
+
+```bash
+AUTOCHECK_ENABLE_LLM_EXTRACTION=false \
+uv run autocheck run your-paper.pdf
+```
+
+只看解析和增量输出，不下载：
+
+```bash
+uv run autocheck run your-paper.pdf --skip-download
+```
+
+## 当前实现边界
+
+- 支持 `PDF`、`TXT`、`MD`
+- 参考文献寻址优先走 `OpenAlex`，再回退到 `arXiv`
+- 部分引用会因为 PDF 提取噪声产生误解析
+- 开放获取不到的参考文献会落到 `not_found`
+- 长论文在 `gpt-5.4 + xhigh` 下逐条核验会比较慢
+
+## 已验证命令
+
+本仓库已经实际跑通过这些命令：
+
+```bash
+uv sync --dev
+uv run pytest
+uv run autocheck run tests/fixtures/sample_draft.txt --skip-download
+AUTOCHECK_ENABLE_LLM_EXTRACTION=false uv run autocheck run inputs/attention-is-all-you-need.pdf
+```
