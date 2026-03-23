@@ -1,0 +1,4 @@
+Transformers significantly improve sequence modeling quality on long-context tasks [1].
+
+References
+[1] Vaswani, A., Shazeer, N., Parmar, N., et al. Attention Is All You Need. 2017.

@@ -1,0 +1,37 @@
+[project]
+name = "autocheck"
+version = "0.1.0"
+description = "Use LangChain to verify whether citation-backed claims are supported by the cited source papers."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "langchain>=0.3",
+  "langchain-community>=0.3",
+  "langchain-openai>=0.3",
+  "langchain-text-splitters>=0.3",
+  "pydantic>=2.7",
+  "python-dotenv>=1.0",
+  "pypdf>=5.0",
+  "requests>=2.32",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3",
+]
+
+[project.scripts]
+autocheck = "autocheck.cli.main:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
