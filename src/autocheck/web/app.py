@@ -9,7 +9,7 @@ from uuid import uuid4
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import HTMLResponse
 
-from autocheck.config.settings import AppSettings
+from autocheck.config.settings import AppSettings, PaperWorkspace
 from autocheck.pipeline.orchestrator import AutoCheckPipeline
 from autocheck.schemas.models import VerificationReport
 
@@ -33,7 +33,7 @@ def create_app(
     def index() -> str:
         return _render_page(
             form_values=_default_form_values(),
-            recent_reports=_recent_reports(_default_web_reports_dir(resolved_settings)),
+            recent_reports=_recent_reports(resolved_settings),
         )
 
     @app.post("/run", response_class=HTMLResponse)
@@ -50,19 +50,20 @@ def create_app(
             "report_dir": report_dir,
             "skip_download": skip_download,
         }
-        recent_reports = _recent_reports(_default_web_reports_dir(resolved_settings))
+        recent_reports = _recent_reports(resolved_settings)
 
         try:
-            source_path = await _prepare_source(
+            source_path, workspace = await _prepare_source(
                 settings=resolved_settings,
                 manuscript_text=manuscript_text,
                 manuscript_file=manuscript_file,
             )
-            output_dir = _resolve_report_dir(resolved_settings, report_dir)
+            output_dir = _resolve_report_dir(resolved_settings, workspace, report_dir)
             pipeline = pipeline_factory(resolved_settings)
             report, paths = pipeline.run(
                 source_path=source_path,
                 report_dir=output_dir,
+                workspace_dir=workspace.root_dir,
                 skip_download=skip_download,
                 max_references=_parse_max_references(max_references),
             )
@@ -72,7 +73,7 @@ def create_app(
                 report=report,
                 report_paths={key: str(value) for key, value in paths.items()},
                 markdown_preview=markdown,
-                recent_reports=_recent_reports(_default_web_reports_dir(resolved_settings)),
+                recent_reports=_recent_reports(resolved_settings),
                 source_path=str(source_path),
             )
         except ValueError as exc:
@@ -95,7 +96,7 @@ async def _prepare_source(
     settings: AppSettings,
     manuscript_text: str,
     manuscript_file: UploadFile | None,
-) -> Path:
+) -> tuple[Path, PaperWorkspace]:
     has_text = bool(manuscript_text.strip())
     has_file = bool(manuscript_file and manuscript_file.filename)
 
@@ -104,20 +105,24 @@ async def _prepare_source(
     if not has_text and not has_file:
         raise ValueError("请上传一个文件，或在文本框里粘贴论文内容。")
 
-    inputs_dir = settings.data_dir / "web-ui" / "inputs"
-    inputs_dir.mkdir(parents=True, exist_ok=True)
-
     if has_file and manuscript_file is not None:
-        suffix = Path(manuscript_file.filename or "").suffix.lower()
+        original_name = Path(manuscript_file.filename or "")
+        suffix = original_name.suffix.lower()
         if suffix not in _ALLOWED_INPUT_SUFFIXES:
             raise ValueError("上传文件只支持 PDF、TXT 或 MD。")
-        target_path = inputs_dir / _build_input_name(Path(manuscript_file.filename).stem, suffix)
+        workspace = settings.workspace_for_source(original_name.name)
+        workspace.ensure_directories()
+        target_path = workspace.inputs_dir / _build_input_name(original_name.stem, suffix)
         target_path.write_bytes(await manuscript_file.read())
-        return target_path
+        return target_path, workspace
 
-    target_path = inputs_dir / _build_input_name("pasted-manuscript", ".txt")
+    workspace = settings.workspace_for_source(
+        f"pasted-manuscript-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
+    )
+    workspace.ensure_directories()
+    target_path = workspace.inputs_dir / _build_input_name("pasted-manuscript", ".txt")
     target_path.write_text(manuscript_text, encoding="utf-8")
-    return target_path
+    return target_path, workspace
 
 
 def _build_input_name(stem: str, suffix: str) -> str:
@@ -137,10 +142,14 @@ def _parse_max_references(raw_value: str) -> int | None:
     return parsed
 
 
-def _resolve_report_dir(settings: AppSettings, raw_value: str) -> Path:
+def _resolve_report_dir(
+    settings: AppSettings,
+    workspace: PaperWorkspace,
+    raw_value: str,
+) -> Path:
     value = raw_value.strip()
     if not value:
-        return _default_web_reports_dir(settings)
+        return workspace.reports_dir
     target = Path(value)
     if not target.is_absolute():
         target = settings.project_root / target
@@ -148,17 +157,11 @@ def _resolve_report_dir(settings: AppSettings, raw_value: str) -> Path:
     return target
 
 
-def _default_web_reports_dir(settings: AppSettings) -> Path:
-    target = settings.reports_dir / "web-ui"
-    target.mkdir(parents=True, exist_ok=True)
-    return target
-
-
-def _recent_reports(report_dir: Path) -> list[str]:
-    if not report_dir.exists():
+def _recent_reports(settings: AppSettings) -> list[str]:
+    if not settings.workspaces_dir.exists():
         return []
     candidates = sorted(
-        report_dir.glob("*.report.json"),
+        settings.workspaces_dir.glob("*/reports/*.report.json"),
         key=lambda path: path.stat().st_mtime,
         reverse=True,
     )
@@ -519,7 +522,7 @@ def _render_page(
               </label>
               <label>
                 报告输出目录
-                <input type="text" name="report_dir" value="{escape(str(form_values.get("report_dir", "")))}" placeholder="留空则写入 data/reports/web-ui">
+                <input type="text" name="report_dir" value="{escape(str(form_values.get("report_dir", "")))}" placeholder="留空则写入 data/workspaces/&lt;paper&gt;/reports">
               </label>
             </div>
             <label class="checkbox">

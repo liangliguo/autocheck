@@ -25,6 +25,7 @@ class FakePipeline:
         self,
         source_path,
         report_dir=None,
+        workspace_dir=None,
         skip_download=False,
         max_references=None,
     ):
@@ -141,6 +142,7 @@ def test_web_run_accepts_pasted_text_and_renders_output(tmp_path) -> None:
     assert "结果面板" in response.text
     assert "strong_support" in response.text
     assert "sample.report.md" in response.text
+    assert "data/workspaces" in response.text
 
 
 def test_web_run_rejects_missing_input(tmp_path) -> None:
@@ -152,3 +154,23 @@ def test_web_run_rejects_missing_input(tmp_path) -> None:
 
     assert response.status_code == 200
     assert "请上传一个文件，或在文本框里粘贴论文内容。" in response.text
+
+
+def test_web_recent_reports_are_collected_from_workspace_directories(tmp_path) -> None:
+    settings = AppSettings.from_env(project_root=tmp_path)
+    report_path = (
+        settings.workspaces_dir
+        / "demo-paper"
+        / "reports"
+        / "demo-paper.report.json"
+    )
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("{}", encoding="utf-8")
+
+    app = create_app(settings=settings, pipeline_factory=FakePipeline)
+    client = TestClient(app)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "demo-paper.report.json" in response.text
