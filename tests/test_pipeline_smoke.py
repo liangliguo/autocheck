@@ -118,7 +118,14 @@ def test_partial_report_is_written_before_completion(tmp_path, monkeypatch) -> N
 
     settings = AppSettings.from_env(project_root=project_root)
     pipeline = AutoCheckPipeline(settings)
-    report_path = project_root / "data" / "reports" / "draft.report.json"
+    report_path = (
+        project_root
+        / "data"
+        / "workspaces"
+        / "draft"
+        / "reports"
+        / "draft.report.json"
+    )
 
     for event in pipeline.run_incremental(source_path=source_path, skip_download=True):
         if event.event == "assessment_ready":
@@ -165,6 +172,35 @@ def test_pipeline_can_limit_processed_references(tmp_path, monkeypatch) -> None:
     assert report.progress is not None
     assert report.progress.total_references == 1
     assert report.progress.total_assessments == 1
+
+
+def test_pipeline_uses_per_source_workspace_directories(tmp_path, monkeypatch) -> None:
+    project_root = tmp_path
+    source_path = project_root / "attention-note.txt"
+    source_path.write_text(
+        (
+            "Transformers significantly improve sequence modeling quality on long-context tasks [1].\n\n"
+            "References\n"
+            "[1] Vaswani, A., Shazeer, N., Parmar, N., et al. Attention Is All You Need. 2017.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("AUTOCHECK_OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+
+    settings = AppSettings.from_env(project_root=project_root)
+    pipeline = AutoCheckPipeline(settings)
+    _report, paths = pipeline.run(source_path=source_path, skip_download=True)
+
+    workspace_dir = project_root / "data" / "workspaces" / "attention-note"
+    assert workspace_dir.exists()
+    assert paths["json"] == workspace_dir / "reports" / "attention-note.report.json"
+    assert paths["markdown"] == workspace_dir / "reports" / "attention-note.report.md"
+    assert paths["events"] == workspace_dir / "reports" / "attention-note.events.jsonl"
+    assert (workspace_dir / "processed" / "library_index.json").exists()
 
 
 def test_numeric_citation_matching_is_exact() -> None:

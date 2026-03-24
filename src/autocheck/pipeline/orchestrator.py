@@ -45,22 +45,22 @@ class AutoCheckPipeline:
         )
 
         self.extractor = DocumentClaimReferenceExtractor(extract_model)
-        self.library = PaperLibrary(settings.downloads_dir, settings.processed_dir)
-        self.reference_manager = ReferenceManager(self.library)
         self.retriever = EvidenceRetriever(settings)
-        self.verifier = ClaimCitationVerifier(self.library, self.retriever, verify_model)
+        self.verify_model = verify_model
         self.report_writer = ReportWriter()
 
     def run(
         self,
         source_path: str | Path,
         report_dir: str | Path | None = None,
+        workspace_dir: str | Path | None = None,
         skip_download: bool = False,
         max_references: int | None = None,
     ) -> Tuple[VerificationReport, Dict[str, Path]]:
         for _event in self.run_incremental(
             source_path=source_path,
             report_dir=report_dir,
+            workspace_dir=workspace_dir,
             skip_download=skip_download,
             max_references=max_references,
         ):
@@ -74,12 +74,18 @@ class AutoCheckPipeline:
         self,
         source_path: str | Path,
         report_dir: str | Path | None = None,
+        workspace_dir: str | Path | None = None,
         skip_download: bool = False,
         max_references: int | None = None,
     ) -> Iterator[PipelineEvent]:
         self._last_run_result = None
         source = Path(source_path)
-        output_dir = Path(report_dir) if report_dir else self.settings.reports_dir
+        workspace = self.settings.workspace_for_source(source, workspace_dir=workspace_dir)
+        workspace.ensure_directories()
+        library = PaperLibrary(workspace.downloads_dir, workspace.processed_dir)
+        reference_manager = ReferenceManager(library)
+        verifier = ClaimCitationVerifier(library, self.retriever, self.verify_model)
+        output_dir = Path(report_dir) if report_dir else workspace.reports_dir
         stem = slugify(source.stem, fallback="report")
         paths = self.report_writer.initialize_incremental_output(output_dir, stem)
 
@@ -145,7 +151,7 @@ class AutoCheckPipeline:
 
         assessment_index = 0
         for claim, marker, reference in unmatched_tasks:
-            assessment = self.verifier.verify(claim, marker, reference)
+            assessment = verifier.verify(claim, marker, reference)
             assessments.append(assessment)
             assessment_index += 1
             self.report_writer.write(
@@ -176,7 +182,7 @@ class AutoCheckPipeline:
             )
 
         for index, record in enumerate(
-            self.reference_manager.iter_prepare_references(
+            reference_manager.iter_prepare_references(
                 parsed_document.references,
                 skip_download=skip_download,
             ),
@@ -211,7 +217,7 @@ class AutoCheckPipeline:
             )
 
             for claim, marker, reference in reference_tasks.get(record.ref_id, []):
-                assessment = self.verifier.verify(claim, marker, reference)
+                assessment = verifier.verify(claim, marker, reference)
                 assessments.append(assessment)
                 assessment_index += 1
                 self.report_writer.write(

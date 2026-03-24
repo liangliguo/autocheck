@@ -16,9 +16,12 @@
 ```text
 autocheck/
 ├── data/
-│   ├── downloads/      # 下载的参考文献 PDF
-│   ├── processed/      # 抽取后的参考文献文本和索引
-│   └── reports/        # 输出报告
+│   └── workspaces/
+│       └── <paper-name>/
+│           ├── inputs/      # 该主论文在本地工作区中的输入副本
+│           ├── downloads/   # 该主论文关联的参考文献 PDF
+│           ├── processed/   # 该主论文关联的参考文献文本和索引
+│           └── reports/     # 该主论文的报告与事件流
 ├── inputs/             # 输入论文 PDF
 ├── src/autocheck/
 ├── tests/
@@ -105,7 +108,7 @@ uv run autocheck run <source> [options]
   输入论文路径，支持 `PDF`、`TXT`、`MD`
 - `-o, --report-dir`
   报告输出目录
-  默认值：`data/reports`
+  默认值：`data/workspaces/<source-stem>/reports`
 - `-s, --skip-download`
   跳过参考文献下载
   默认值：关闭
@@ -217,7 +220,7 @@ CLI 不是等全部结束后才打印。
 同时会生成事件流文件：
 
 ```text
-data/reports/<stem>.events.jsonl
+data/workspaces/<paper-name>/reports/<stem>.events.jsonl
 ```
 
 每一行都是一个 JSON 事件。
@@ -227,9 +230,9 @@ data/reports/<stem>.events.jsonl
 每次运行会生成三类文件：
 
 ```text
-data/reports/<stem>.report.json
-data/reports/<stem>.report.md
-data/reports/<stem>.events.jsonl
+data/workspaces/<paper-name>/reports/<stem>.report.json
+data/workspaces/<paper-name>/reports/<stem>.report.md
+data/workspaces/<paper-name>/reports/<stem>.events.jsonl
 ```
 
 其中：
@@ -256,6 +259,7 @@ http://127.0.0.1:8000
 
 - 上传 `PDF`、`TXT`、`MD`
 - 直接粘贴论文或草稿文本
+- 默认按主论文名落到独立工作目录
 - 设置 `max references`
 - 设置自定义报告输出目录
 - 选择是否跳过参考文献下载
@@ -274,8 +278,8 @@ http://127.0.0.1:8000
 ### 1. 清空旧数据
 
 ```bash
-rm -rf data/downloads data/processed data/reports
-mkdir -p data/downloads data/processed data/reports
+rm -rf data/workspaces
+mkdir -p data/workspaces
 ```
 
 ### 2. 下载输入论文
@@ -304,19 +308,19 @@ uv run autocheck run inputs/attention-is-all-you-need.pdf -n 5
 - 解析输入论文
 - 自动下载被引论文
 - 逐条输出引用核验进度
-- 在 `data/reports/` 生成最终报告
+- 在 `data/workspaces/<paper-name>/reports/` 生成最终报告
 
 ### 4. 查看结果
 
 ```bash
-ls -lh data/reports
+find data/workspaces -maxdepth 3 -type f | sort
 ```
 
 ```bash
 uv run python - <<'PY'
 import json
 from pathlib import Path
-p = Path("data/reports/attention-is-all-you-need.report.json")
+p = Path("data/workspaces/attention-is-all-you-need/reports/attention-is-all-you-need.report.json")
 data = json.loads(p.read_text())
 print(data["summary"])
 PY
@@ -367,6 +371,7 @@ uv run autocheck run your-paper.pdf -n 3
 ## 当前实现边界
 
 - 支持 `PDF`、`TXT`、`MD`
+- 默认按主论文名为每篇输入创建独立工作目录
 - 参考文献寻址优先走 `OpenAlex`，再回退到 `arXiv`
 - 部分引用会因为 PDF 提取噪声产生误解析
 - 开放获取不到的参考文献会落到 `not_found`

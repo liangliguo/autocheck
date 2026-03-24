@@ -6,6 +6,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from autocheck.utils.text import slugify
+
 
 def _get_bool_env(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
@@ -15,9 +17,30 @@ def _get_bool_env(name: str, default: bool = False) -> bool:
 
 
 @dataclass(frozen=True)
+class PaperWorkspace:
+    name: str
+    root_dir: Path
+    inputs_dir: Path
+    downloads_dir: Path
+    processed_dir: Path
+    reports_dir: Path
+
+    def ensure_directories(self) -> None:
+        for path in (
+            self.root_dir,
+            self.inputs_dir,
+            self.downloads_dir,
+            self.processed_dir,
+            self.reports_dir,
+        ):
+            path.mkdir(parents=True, exist_ok=True)
+
+
+@dataclass(frozen=True)
 class AppSettings:
     project_root: Path
     data_dir: Path
+    workspaces_dir: Path
     downloads_dir: Path
     processed_dir: Path
     reports_dir: Path
@@ -45,6 +68,7 @@ class AppSettings:
         return cls(
             project_root=root,
             data_dir=data_dir,
+            workspaces_dir=data_dir / "workspaces",
             downloads_dir=data_dir / "downloads",
             processed_dir=data_dir / "processed",
             reports_dir=data_dir / "reports",
@@ -82,8 +106,35 @@ class AppSettings:
     def ensure_directories(self) -> None:
         for path in (
             self.data_dir,
+            self.workspaces_dir,
             self.downloads_dir,
             self.processed_dir,
             self.reports_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
+
+    def workspace_name_for_source(self, source_path: str | Path) -> str:
+        source = Path(source_path)
+        return slugify(source.stem, fallback="paper")
+
+    def workspace_for_source(
+        self,
+        source_path: str | Path,
+        workspace_dir: str | Path | None = None,
+    ) -> PaperWorkspace:
+        source = Path(source_path)
+        if workspace_dir is None:
+            root_dir = self.workspaces_dir / self.workspace_name_for_source(source)
+        else:
+            root_dir = Path(workspace_dir)
+            if not root_dir.is_absolute():
+                root_dir = self.project_root / root_dir
+
+        return PaperWorkspace(
+            name=root_dir.name,
+            root_dir=root_dir,
+            inputs_dir=root_dir / "inputs",
+            downloads_dir=root_dir / "downloads",
+            processed_dir=root_dir / "processed",
+            reports_dir=root_dir / "reports",
+        )
