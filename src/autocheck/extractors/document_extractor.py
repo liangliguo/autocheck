@@ -65,7 +65,10 @@ class DocumentClaimReferenceExtractor:
             prompt = ChatPromptTemplate.from_messages(
                 [("system", EXTRACTION_SYSTEM_PROMPT), ("human", EXTRACTION_HUMAN_TEMPLATE)]
             )
-            chain = prompt | self.chat_model.with_structured_output(LLMClaimExtraction)
+            chain = prompt | self.chat_model.with_structured_output(
+                LLMClaimExtraction,
+                method="function_calling",
+            )
             return chain.invoke(
                 {
                     "source_path": str(source_path),

@@ -7,9 +7,15 @@ from autocheck.config.settings import AppSettings
 from autocheck.extractors.document_extractor import DocumentClaimReferenceExtractor
 from autocheck.pipeline.orchestrator import AutoCheckPipeline
 from autocheck.pipeline.verifier import ClaimCitationVerifier
-from autocheck.schemas.models import ClaimRecord, ReferenceEntry, VerificationLabel
+from autocheck.schemas.models import (
+    ClaimRecord,
+    EvidenceChunk,
+    LLMClaimExtraction,
+    LLMVerificationDecision,
+    ReferenceEntry,
+    VerificationLabel,
+)
 from autocheck.repository.library import PaperLibrary
-from autocheck.schemas.models import EvidenceChunk
 from autocheck.services.evidence_retriever import EvidenceRetriever
 from autocheck.utils.citations import extract_cited_sentences, match_citation_to_reference
 
@@ -302,7 +308,7 @@ def test_verifier_falls_back_when_structured_llm_parsing_fails(tmp_path) -> None
     library.processed_dir.mkdir(parents=True, exist_ok=True)
 
     class BrokenChatModel:
-        def with_structured_output(self, _schema):
+        def with_structured_output(self, _schema, **_kwargs):
             return RunnableLambda(
                 lambda _input: (_ for _ in ()).throw(RuntimeError("boom"))
             )
@@ -322,3 +328,69 @@ def test_verifier_falls_back_when_structured_llm_parsing_fails(tmp_path) -> None
 
     assert decision.verdict == VerificationLabel.PARTIAL_SUPPORT
     assert "fell back to lexical scoring" in decision.concerns[0]
+
+
+def test_extractor_uses_function_calling_for_structured_output(tmp_path) -> None:
+    source_path = tmp_path / "draft.txt"
+    source_path.write_text(
+        (
+            "Transformers use attention [1].\n\n"
+            "References\n"
+            "[1] Author A. Test Paper. 2017.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    class RecordingChatModel:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def with_structured_output(self, schema, **kwargs):
+            self.calls.append((schema, kwargs))
+            return RunnableLambda(lambda _input: LLMClaimExtraction())
+
+    chat_model = RecordingChatModel()
+    extractor = DocumentClaimReferenceExtractor(chat_model=chat_model)
+    extractor.extract(source_path)
+
+    assert chat_model.calls[0][0] is LLMClaimExtraction
+    assert chat_model.calls[0][1]["method"] == "function_calling"
+
+
+def test_verifier_uses_function_calling_for_structured_output(tmp_path) -> None:
+    settings = AppSettings.from_env(project_root=tmp_path)
+    library = PaperLibrary(tmp_path / "downloads", tmp_path / "processed")
+    library.downloads_dir.mkdir(parents=True, exist_ok=True)
+    library.processed_dir.mkdir(parents=True, exist_ok=True)
+
+    class RecordingChatModel:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def with_structured_output(self, schema, **kwargs):
+            self.calls.append((schema, kwargs))
+            return RunnableLambda(
+                lambda _input: LLMVerificationDecision(
+                    verdict=VerificationLabel.PARTIAL_SUPPORT,
+                    confidence=0.5,
+                    reasoning="ok",
+                    used_chunk_ids=["[1]#1"],
+                )
+            )
+
+    chat_model = RecordingChatModel()
+    verifier = ClaimCitationVerifier(
+        library=library,
+        retriever=EvidenceRetriever(settings),
+        chat_model=chat_model,
+    )
+
+    verifier._verify_with_llm(
+        ClaimRecord(claim_id="claim-1", text="A claim", citation_markers=["[1]"]),
+        "[1]",
+        ReferenceEntry(ref_id="[1]", raw_text="[1] Ref", title="Ref"),
+        [EvidenceChunk(chunk_id="[1]#1", ref_id="[1]", score=0.3, text="A claim")],
+    )
+
+    assert chat_model.calls[0][0] is LLMVerificationDecision
+    assert chat_model.calls[0][1]["method"] == "function_calling"

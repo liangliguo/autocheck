@@ -134,7 +134,10 @@ class ClaimCitationVerifier:
         prompt = ChatPromptTemplate.from_messages(
             [("system", VERIFICATION_SYSTEM_PROMPT), ("human", VERIFICATION_HUMAN_TEMPLATE)]
         )
-        chain = prompt | self.chat_model.with_structured_output(LLMVerificationDecision)
+        chain = prompt | self.chat_model.with_structured_output(
+            LLMVerificationDecision,
+            method="function_calling",
+        )
         rendered_evidence = "\n\n".join(
             f"[{chunk.chunk_id}] score={chunk.score:.3f}\n{chunk.text}" for chunk in evidence
         )
