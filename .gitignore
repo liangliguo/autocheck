@@ -12,3 +12,5 @@ inputs/
 data/downloads/
 data/processed/
 data/reports/
+
+uv.lock
