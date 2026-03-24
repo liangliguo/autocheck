@@ -6,12 +6,14 @@ from pathlib import Path
 from typing import Callable
 from uuid import uuid4
 
+import requests
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import HTMLResponse
 
 from autocheck.config.settings import AppSettings, PaperWorkspace
 from autocheck.pipeline.orchestrator import AutoCheckPipeline
 from autocheck.schemas.models import VerificationReport
+from autocheck.services.source_resolver import resolve_source_input
 
 PipelineFactory = Callable[[AppSettings], AutoCheckPipeline]
 
@@ -40,12 +42,14 @@ def create_app(
     async def run(
         manuscript_text: str = Form(default=""),
         manuscript_file: UploadFile | None = File(default=None),
+        manuscript_url: str = Form(default=""),
         max_references: str = Form(default=""),
         report_dir: str = Form(default=""),
         skip_download: bool = Form(default=False),
     ) -> str:
         form_values = {
             "manuscript_text": manuscript_text,
+            "manuscript_url": manuscript_url,
             "max_references": max_references,
             "report_dir": report_dir,
             "skip_download": skip_download,
@@ -57,6 +61,7 @@ def create_app(
                 settings=resolved_settings,
                 manuscript_text=manuscript_text,
                 manuscript_file=manuscript_file,
+                manuscript_url=manuscript_url,
             )
             output_dir = _resolve_report_dir(resolved_settings, workspace, report_dir)
             pipeline = pipeline_factory(resolved_settings)
@@ -96,14 +101,17 @@ async def _prepare_source(
     settings: AppSettings,
     manuscript_text: str,
     manuscript_file: UploadFile | None,
+    manuscript_url: str,
 ) -> tuple[Path, PaperWorkspace]:
     has_text = bool(manuscript_text.strip())
     has_file = bool(manuscript_file and manuscript_file.filename)
+    has_url = bool(manuscript_url.strip())
+    selected_count = sum((has_text, has_file, has_url))
 
-    if has_text and has_file:
-        raise ValueError("请只选择一种输入方式：上传文件，或粘贴文本。")
-    if not has_text and not has_file:
-        raise ValueError("请上传一个文件，或在文本框里粘贴论文内容。")
+    if selected_count > 1:
+        raise ValueError("请只选择一种输入方式：上传文件、填写论文链接，或粘贴文本。")
+    if selected_count == 0:
+        raise ValueError("请上传文件、填写论文链接，或在文本框里粘贴论文内容。")
 
     if has_file and manuscript_file is not None:
         original_name = Path(manuscript_file.filename or "")
@@ -114,6 +122,19 @@ async def _prepare_source(
         workspace.ensure_directories()
         target_path = workspace.inputs_dir / _build_input_name(original_name.stem, suffix)
         target_path.write_bytes(await manuscript_file.read())
+        return target_path, workspace
+
+    if has_url:
+        workspace = settings.workspace_for_source(manuscript_url.strip())
+        workspace.ensure_directories()
+        try:
+            target_path = resolve_source_input(
+                manuscript_url.strip(),
+                workspace,
+                timeout=settings.openai_timeout,
+            )
+        except requests.RequestException as exc:
+            raise ValueError(f"下载论文链接失败：{exc}") from exc
         return target_path, workspace
 
     workspace = settings.workspace_for_source(
@@ -171,6 +192,7 @@ def _recent_reports(settings: AppSettings) -> list[str]:
 def _default_form_values() -> dict[str, object]:
     return {
         "manuscript_text": "",
+        "manuscript_url": "",
         "max_references": "",
         "report_dir": "",
         "skip_download": False,
@@ -497,7 +519,7 @@ def _render_page(
     <section class="hero">
       <span class="eyebrow">AutoCheck Studio</span>
       <h1>论文引用核验可视化工作台</h1>
-      <p class="lead">上传 PDF、TXT、MD，或者直接粘贴草稿文本。页面会调用现有 AutoCheck 流水线，并把摘要、参考文献匹配和逐条 assessment 直接展示出来。</p>
+      <p class="lead">上传 PDF、TXT、MD，填写论文链接，或者直接粘贴草稿文本。页面会调用现有 AutoCheck 流水线，并把摘要、参考文献匹配和逐条 assessment 直接展示出来。</p>
     </section>
 
     <div class="grid">
@@ -509,7 +531,12 @@ def _render_page(
             <label>
               上传论文文件
               <input type="file" name="manuscript_file" accept=".pdf,.txt,.md">
-              <span class="hint">支持 PDF、TXT、MD。若上传文件，则会忽略粘贴文本。</span>
+              <span class="hint">支持 PDF、TXT、MD。上传文件、论文链接、粘贴文本三选一。</span>
+            </label>
+            <label>
+              或填写论文链接
+              <input type="text" name="manuscript_url" value="{escape(str(form_values.get("manuscript_url", "")))}" placeholder="例如 https://arxiv.org/abs/1706.03762">
+              <span class="hint">支持可直接下载的 PDF、TXT、MD 链接；常见 arXiv `abs` 链接会自动转换为 PDF。</span>
             </label>
             <label>
               或直接粘贴论文 / 草稿文本

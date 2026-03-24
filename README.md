@@ -264,6 +264,7 @@ http://127.0.0.1:8000
 页面支持：
 
 - 上传 `PDF`、`TXT`、`MD`
+- 填写论文链接作为输入
 - 直接粘贴论文或草稿文本
 - 默认按主论文名落到独立工作目录
 - 设置 `max references`
@@ -408,5 +409,3 @@ uv run autocheck run inputs/attention-is-all-you-need.pdf -n 3
 uv run autocheck run https://arxiv.org/abs/1706.03762 -n 3
 uv run autocheck web --help
 ```
-```
->>>>>>> 522f444 (Allow paper URLs as pipeline input)

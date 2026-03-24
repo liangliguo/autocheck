@@ -122,6 +122,7 @@ def test_web_index_renders_form(tmp_path) -> None:
     assert response.status_code == 200
     assert "AutoCheck Studio" in response.text
     assert "运行 AutoCheck" in response.text
+    assert "填写论文链接" in response.text
 
 
 def test_web_run_accepts_pasted_text_and_renders_output(tmp_path) -> None:
@@ -153,7 +154,51 @@ def test_web_run_rejects_missing_input(tmp_path) -> None:
     response = client.post("/run", data={})
 
     assert response.status_code == 200
-    assert "请上传一个文件，或在文本框里粘贴论文内容。" in response.text
+    assert "请上传文件、填写论文链接，或在文本框里粘贴论文内容。" in response.text
+
+
+def test_web_run_accepts_url_input_and_renders_output(tmp_path, monkeypatch) -> None:
+    settings = AppSettings.from_env(project_root=tmp_path)
+    app = create_app(settings=settings, pipeline_factory=FakePipeline)
+    client = TestClient(app)
+
+    downloaded = settings.workspaces_dir / "1706-03762" / "inputs" / "1706-03762.pdf"
+    downloaded.parent.mkdir(parents=True, exist_ok=True)
+    downloaded.write_bytes(b"%PDF-1.4 demo")
+
+    monkeypatch.setattr(
+        "autocheck.web.app.resolve_source_input",
+        lambda *_args, **_kwargs: downloaded,
+    )
+
+    response = client.post(
+        "/run",
+        data={
+            "manuscript_url": "https://arxiv.org/abs/1706.03762",
+            "max_references": "1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "结果面板" in response.text
+    assert "1706-03762.pdf" in response.text
+
+
+def test_web_run_rejects_multiple_input_modes(tmp_path) -> None:
+    settings = AppSettings.from_env(project_root=tmp_path)
+    app = create_app(settings=settings, pipeline_factory=FakePipeline)
+    client = TestClient(app)
+
+    response = client.post(
+        "/run",
+        data={
+            "manuscript_text": "demo",
+            "manuscript_url": "https://arxiv.org/abs/1706.03762",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "请只选择一种输入方式：上传文件、填写论文链接，或粘贴文本。" in response.text
 
 
 def test_web_recent_reports_are_collected_from_workspace_directories(tmp_path) -> None:
