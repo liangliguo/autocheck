@@ -53,6 +53,7 @@ class ResolverMatch(BaseModel):
 
 
 class LocalPaperRecord(BaseModel):
+    record_key: Optional[str] = None
     ref_id: str
     title: Optional[str] = None
     pdf_path: Optional[str] = None

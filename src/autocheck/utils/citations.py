@@ -9,7 +9,7 @@ from autocheck.utils.text import dedupe_preserve_order, normalize_whitespace
 
 NUMERIC_CITATION_RE = re.compile(r"\[(?P<body>[0-9,\-\s]+)\]")
 AUTHOR_YEAR_CITATION_RE = re.compile(
-    r"\((?P<body>(?:[A-Z][A-Za-z'`\-]+(?:\s+et al\.)?,?\s+\d{4}[a-z]?(?:\s*;\s*)?)+)\)"
+    r"\((?P<body>(?:[A-Z][A-Za-z'`\-]*[a-z][A-Za-z'`\-]*(?:\s+et al\.)?,?\s+\d{4}[a-z]?(?:\s*;\s*)?)+)\)"
 )
 REFERENCE_HEADING_RE = re.compile(
     r"\n(?P<header>references|bibliography|参考文献)\s*\n",

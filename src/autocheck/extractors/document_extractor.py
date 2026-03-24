@@ -120,17 +120,39 @@ class DocumentClaimReferenceExtractor:
         if not llm_claims:
             return heuristic_claims
 
-        merged: List[ClaimRecord] = []
-        for index, claim in enumerate(llm_claims, start=1):
-            citation_markers = claim.citation_markers or extract_citation_markers(claim.text)
-            merged.append(
-                ClaimRecord(
-                    claim_id=claim.claim_id or f"claim-{index}",
-                    text=normalize_whitespace(claim.text),
-                    citation_markers=dedupe_preserve_order(citation_markers),
-                    section=claim.section,
-                    paragraph_index=claim.paragraph_index or index,
+        merged = [
+            self._finalize_claim(claim, index)
+            for index, claim in enumerate(heuristic_claims, start=1)
+        ]
+        index_by_text = {
+            normalize_whitespace(claim.text): position
+            for position, claim in enumerate(merged)
+        }
+
+        for claim in llm_claims:
+            normalized_text = normalize_whitespace(claim.text)
+            existing_index = index_by_text.get(normalized_text)
+            if existing_index is None:
+                merged.append(
+                    self._finalize_claim(
+                        claim,
+                        index=len(merged) + 1,
+                    )
                 )
+                index_by_text[normalized_text] = len(merged) - 1
+                continue
+
+            existing = merged[existing_index]
+            citation_markers = dedupe_preserve_order(
+                existing.citation_markers
+                + (claim.citation_markers or extract_citation_markers(claim.text))
+            )
+            merged[existing_index] = ClaimRecord(
+                claim_id=existing.claim_id,
+                text=existing.text,
+                citation_markers=citation_markers,
+                section=claim.section or existing.section,
+                paragraph_index=claim.paragraph_index or existing.paragraph_index,
             )
         return merged
 
@@ -142,27 +164,56 @@ class DocumentClaimReferenceExtractor:
         if not llm_references:
             return heuristic_references
 
-        merged: List[ReferenceEntry] = []
-        total = max(len(heuristic_references), len(llm_references))
-        for index in range(1, total + 1):
-            reference = llm_references[index - 1] if index - 1 < len(llm_references) else None
-            fallback = heuristic_references[index - 1] if index - 1 < len(heuristic_references) else None
-            if reference is None and fallback is not None:
-                merged.append(fallback)
+        merged = [
+            self._finalize_reference(reference, index)
+            for index, reference in enumerate(heuristic_references, start=1)
+        ]
+        index_by_ref_id = {
+            reference.ref_id: position
+            for position, reference in enumerate(merged)
+        }
+        index_by_arxiv_id = {
+            reference.arxiv_id: position
+            for position, reference in enumerate(merged)
+            if reference.arxiv_id
+        }
+        index_by_title = {
+            normalize_whitespace(reference.title).lower(): position
+            for position, reference in enumerate(merged)
+            if reference.title
+        }
+
+        for reference in llm_references:
+            normalized = self._finalize_reference(reference, index=len(merged) + 1)
+            existing_index = index_by_ref_id.get(normalized.ref_id)
+            if existing_index is None and normalized.arxiv_id:
+                existing_index = index_by_arxiv_id.get(normalized.arxiv_id)
+            if existing_index is None and normalized.title:
+                existing_index = index_by_title.get(normalized.title.lower())
+
+            if existing_index is None:
+                merged.append(normalized)
+                index_by_ref_id[normalized.ref_id] = len(merged) - 1
+                if normalized.arxiv_id:
+                    index_by_arxiv_id[normalized.arxiv_id] = len(merged) - 1
+                if normalized.title:
+                    index_by_title[normalized.title.lower()] = len(merged) - 1
                 continue
-            if reference is None:
-                continue
-            merged.append(
-                ReferenceEntry(
-                    ref_id=reference.ref_id or (fallback.ref_id if fallback else f"ref-{index}"),
-                    raw_text=reference.raw_text or (fallback.raw_text if fallback else ""),
-                    title=reference.title or (fallback.title if fallback else None),
-                    authors=reference.authors or (fallback.authors if fallback else []),
-                    year=reference.year or (fallback.year if fallback else None),
-                    doi=reference.doi or (fallback.doi if fallback else None),
-                    arxiv_id=reference.arxiv_id or (fallback.arxiv_id if fallback else None),
-                    aliases=reference.aliases or (fallback.aliases if fallback else []),
-                )
+
+            fallback = merged[existing_index]
+            merged_reference = ReferenceEntry(
+                ref_id=fallback.ref_id,
+                raw_text=normalized.raw_text or fallback.raw_text,
+                title=normalized.title or fallback.title,
+                authors=normalized.authors or fallback.authors,
+                year=normalized.year or fallback.year,
+                doi=normalized.doi or fallback.doi,
+                arxiv_id=normalized.arxiv_id or fallback.arxiv_id,
+                aliases=dedupe_preserve_order(fallback.aliases + normalized.aliases),
+            )
+            merged[existing_index] = self._finalize_reference(
+                merged_reference,
+                index=existing_index + 1,
             )
         return merged
 
@@ -202,15 +253,26 @@ class DocumentClaimReferenceExtractor:
         if quoted:
             return quoted.group(1).strip()
 
-        cleaned = re.sub(r"^(?:\[\d+\]|\d+\.)\s*", "", raw_text).strip()
-        parts = [part.strip() for part in re.split(r"\.\s+", cleaned) if part.strip()]
+        cleaned = re.sub(
+            r"^(?:\[\d+\]|\d+\.)\s*",
+            "",
+            self._normalize_reference_text_for_parsing(raw_text),
+        ).strip()
+        parts = self._split_reference_segments(cleaned)
         if len(parts) >= 2:
             return parts[1][:300]
         return None
 
     def _guess_authors(self, raw_text: str) -> List[str]:
-        cleaned = re.sub(r"^(?:\[\d+\]|\d+\.)\s*", "", raw_text).strip()
-        first_segment = re.split(r"\.\s+", cleaned, maxsplit=1)[0]
+        cleaned = re.sub(
+            r"^(?:\[\d+\]|\d+\.)\s*",
+            "",
+            self._normalize_reference_text_for_parsing(raw_text),
+        ).strip()
+        segments = self._split_reference_segments(cleaned)
+        if not segments:
+            return []
+        first_segment = segments[0]
         candidates = re.split(r",| and ", first_segment)
         authors = [normalize_whitespace(candidate) for candidate in candidates if normalize_whitespace(candidate)]
         return authors[:8]
@@ -222,7 +284,21 @@ class DocumentClaimReferenceExtractor:
         return None
 
     def _guess_arxiv_id(self, raw_text: str) -> Optional[str]:
-        match = re.search(r"\barXiv:(\d{4}\.\d{4,5}(?:v\d+)?)\b", raw_text, flags=re.IGNORECASE)
+        match = re.search(
+            r"\b(?:arXiv:|abs/)(\d{4}\.\d{4,5}(?:v\d+)?)\b",
+            raw_text,
+            flags=re.IGNORECASE,
+        )
         if match:
             return match.group(1)
         return None
+
+    def _normalize_reference_text_for_parsing(self, raw_text: str) -> str:
+        return re.sub(r"\b([A-Z])\s*\.\s*", r"\1. ", raw_text)
+
+    def _split_reference_segments(self, text: str) -> List[str]:
+        return [
+            part.strip()
+            for part in re.split(r"(?<!\b[A-Z])\.\s+", text)
+            if part.strip()
+        ]

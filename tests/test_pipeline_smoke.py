@@ -1,11 +1,17 @@
 from pathlib import Path
 import json
 
+from langchain_core.runnables import RunnableLambda
+
 from autocheck.config.settings import AppSettings
+from autocheck.extractors.document_extractor import DocumentClaimReferenceExtractor
 from autocheck.pipeline.orchestrator import AutoCheckPipeline
-from autocheck.schemas.models import VerificationLabel
-from autocheck.utils.citations import match_citation_to_reference
-from autocheck.schemas.models import ReferenceEntry
+from autocheck.pipeline.verifier import ClaimCitationVerifier
+from autocheck.schemas.models import ClaimRecord, ReferenceEntry, VerificationLabel
+from autocheck.repository.library import PaperLibrary
+from autocheck.schemas.models import EvidenceChunk
+from autocheck.services.evidence_retriever import EvidenceRetriever
+from autocheck.utils.citations import extract_cited_sentences, match_citation_to_reference
 
 
 def test_pipeline_smoke_run_without_network(tmp_path, monkeypatch) -> None:
@@ -176,3 +182,143 @@ def test_settings_default_to_llm_verification_only(tmp_path, monkeypatch) -> Non
     assert settings.enable_llm_verification is True
     assert settings.chat_model == "gpt-5.4"
     assert settings.verify_model == "gpt-5.4"
+
+
+def test_extractor_ignores_conference_header_like_nips_2017() -> None:
+    text = "31st Conference on Neural Information Processing Systems (NIPS 2017), Long Beach, CA, USA."
+    assert extract_cited_sentences(text) == []
+
+
+def test_reference_parsing_handles_author_initials_and_abs_arxiv_ids(tmp_path) -> None:
+    source_path = tmp_path / "draft.txt"
+    source_path.write_text(
+        (
+            "Transformers use attention [3].\n\n"
+            "References\n"
+            "[3] Denny Britz, Anna Goldie, Minh-Thang Luong, and Quoc V . Le. "
+            "Massive exploration of neural machine translation architectures. "
+            "CoRR, abs/1703.03906, 2017.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    parsed = DocumentClaimReferenceExtractor(chat_model=None).extract(source_path)
+
+    assert parsed.references[0].title == "Massive exploration of neural machine translation architectures"
+    assert parsed.references[0].authors[-1] == "Quoc V. Le"
+    assert parsed.references[0].arxiv_id == "1703.03906"
+
+
+def test_llm_merge_preserves_unmatched_heuristic_claims_and_references() -> None:
+    extractor = DocumentClaimReferenceExtractor(chat_model=None)
+    heuristic_claims = [
+        ClaimRecord(claim_id="claim-1", text="A [1]", citation_markers=["[1]"]),
+        ClaimRecord(claim_id="claim-2", text="B [2]", citation_markers=["[2]"]),
+    ]
+    llm_claims = [ClaimRecord(claim_id="llm-1", text="A [1]", citation_markers=["[1]"])]
+
+    merged_claims = extractor._merge_claims(heuristic_claims, llm_claims)
+    assert [claim.claim_id for claim in merged_claims] == ["claim-1", "claim-2"]
+
+    heuristic_refs = [
+        ReferenceEntry(ref_id="[1]", raw_text="[1] First. One. 2017.", title="One"),
+        ReferenceEntry(ref_id="[2]", raw_text="[2] Second. Two. 2018.", title="Two"),
+    ]
+    llm_refs = [
+        ReferenceEntry(
+            ref_id="[2]",
+            raw_text="[2] Second. Two revised. 2018.",
+            title="Two revised",
+        )
+    ]
+
+    merged_refs = extractor._merge_references(heuristic_refs, llm_refs)
+    assert [reference.ref_id for reference in merged_refs] == ["[1]", "[2]"]
+    assert merged_refs[1].title == "Two revised"
+
+
+def test_library_uses_reference_identity_not_local_numeric_marker(tmp_path) -> None:
+    library = PaperLibrary(tmp_path / "downloads", tmp_path / "processed")
+    library.downloads_dir.mkdir(parents=True, exist_ok=True)
+    library.processed_dir.mkdir(parents=True, exist_ok=True)
+
+    first_reference = ReferenceEntry(
+        ref_id="[1]",
+        raw_text="[1] First paper. abs/1111.1111, 2017.",
+        title="First paper",
+        authors=["Author A"],
+        year=2017,
+        arxiv_id="1111.1111",
+    )
+    second_reference = ReferenceEntry(
+        ref_id="[1]",
+        raw_text="[1] Second paper. abs/2222.2222, 2018.",
+        title="Second paper",
+        authors=["Author B"],
+        year=2018,
+        arxiv_id="2222.2222",
+    )
+
+    first_pdf = b"%PDF-1.4 first"
+    second_pdf = b"%PDF-1.4 second"
+
+    library.save_download(
+        first_reference,
+        match=type(
+            "Match",
+            (),
+            {
+                "title": "First paper",
+                "pdf_url": "https://example.com/first.pdf",
+                "landing_page_url": "https://example.com/first",
+                "resolver_name": "test",
+            },
+        )(),
+        pdf_bytes=first_pdf,
+    )
+    library.save_download(
+        second_reference,
+        match=type(
+            "Match",
+            (),
+            {
+                "title": "Second paper",
+                "pdf_url": "https://example.com/second.pdf",
+                "landing_page_url": "https://example.com/second",
+                "resolver_name": "test",
+            },
+        )(),
+        pdf_bytes=second_pdf,
+    )
+
+    assert library.get(first_reference).title == "First paper"
+    assert library.get(second_reference).title == "Second paper"
+
+
+def test_verifier_falls_back_when_structured_llm_parsing_fails(tmp_path) -> None:
+    settings = AppSettings.from_env(project_root=tmp_path)
+    library = PaperLibrary(tmp_path / "downloads", tmp_path / "processed")
+    library.downloads_dir.mkdir(parents=True, exist_ok=True)
+    library.processed_dir.mkdir(parents=True, exist_ok=True)
+
+    class BrokenChatModel:
+        def with_structured_output(self, _schema):
+            return RunnableLambda(
+                lambda _input: (_ for _ in ()).throw(RuntimeError("boom"))
+            )
+
+    verifier = ClaimCitationVerifier(
+        library=library,
+        retriever=EvidenceRetriever(settings),
+        chat_model=BrokenChatModel(),
+    )
+
+    decision = verifier._verify_with_llm(
+        ClaimRecord(claim_id="claim-1", text="A claim", citation_markers=["[1]"]),
+        "[1]",
+        ReferenceEntry(ref_id="[1]", raw_text="[1] Ref", title="Ref"),
+        [EvidenceChunk(chunk_id="[1]#1", ref_id="[1]", score=0.3, text="A claim")],
+    )
+
+    assert decision.verdict == VerificationLabel.PARTIAL_SUPPORT
+    assert "fell back to lexical scoring" in decision.concerns[0]

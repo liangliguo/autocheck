@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Dict, Iterator, Tuple
 
@@ -369,7 +369,7 @@ class AutoCheckPipeline:
     ) -> VerificationReport:
         return VerificationReport(
             source_path=str(source.resolve()),
-            generated_at=datetime.utcnow(),
+            generated_at=datetime.now(UTC),
             status=status,
             progress=ReportProgress(
                 total_references=total_references,
@@ -391,7 +391,7 @@ class AutoCheckPipeline:
     ) -> PipelineEvent:
         event = PipelineEvent(
             event=event_name,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
             payload=payload,
         )
         self.report_writer.append_event(events_path, event)

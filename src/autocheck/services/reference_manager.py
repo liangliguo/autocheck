@@ -29,7 +29,7 @@ class ReferenceManager:
     ) -> Iterator[LocalPaperRecord]:
         records: List[LocalPaperRecord] = []
         for reference in references:
-            existing = self.library.get(reference.ref_id)
+            existing = self.library.get(reference)
             if existing and existing.pdf_path:
                 existing.status = "cached"
                 self.library.ensure_placeholder(reference, status="cached")

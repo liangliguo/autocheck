@@ -45,7 +45,7 @@ class ClaimCitationVerifier:
                 reasoning="Citation marker could not be matched to any parsed reference entry.",
             )
 
-        record = self.library.get(reference.ref_id)
+        record = self.library.get(reference)
         if record is None or (not record.pdf_path and not record.text_path):
             return ClaimCitationAssessment(
                 claim_id=claim.claim_id,
@@ -125,22 +125,10 @@ class ClaimCitationVerifier:
         evidence,
     ) -> LLMVerificationDecision:
         if self.chat_model is None:
-            top_score = evidence[0].score
-            if top_score >= 0.45:
-                verdict = VerificationLabel.STRONG_SUPPORT
-            elif top_score >= 0.2:
-                verdict = VerificationLabel.PARTIAL_SUPPORT
-            else:
-                verdict = VerificationLabel.UNSUPPORTED_OR_MISLEADING
-
-            return LLMVerificationDecision(
-                verdict=verdict,
-                confidence=min(0.8, max(0.2, top_score)),
+            return self._fallback_decision(
+                evidence,
                 reasoning="Fallback lexical scorer was used because no chat model was configured.",
-                used_chunk_ids=[chunk.chunk_id for chunk in evidence[:2]],
-                supported_points=[],
-                unsupported_points=[],
-                concerns=["LLM verification was skipped because OPENAI_API_KEY is not configured."],
+                concern="LLM verification was skipped because no chat model was configured.",
             )
 
         prompt = ChatPromptTemplate.from_messages(
@@ -150,15 +138,50 @@ class ClaimCitationVerifier:
         rendered_evidence = "\n\n".join(
             f"[{chunk.chunk_id}] score={chunk.score:.3f}\n{chunk.text}" for chunk in evidence
         )
-        return chain.invoke(
-            {
-                "claim_id": claim.claim_id,
-                "claim_text": claim.text,
-                "citation_marker": citation_marker,
-                "ref_id": reference.ref_id,
-                "title": reference.title or "",
-                "authors": ", ".join(reference.authors),
-                "year": reference.year or "",
-                "evidence": rendered_evidence,
-            }
+        try:
+            return chain.invoke(
+                {
+                    "claim_id": claim.claim_id,
+                    "claim_text": claim.text,
+                    "citation_marker": citation_marker,
+                    "ref_id": reference.ref_id,
+                    "title": reference.title or "",
+                    "authors": ", ".join(reference.authors),
+                    "year": reference.year or "",
+                    "evidence": rendered_evidence,
+                }
+            )
+        except Exception as exc:
+            error_message = " ".join(str(exc).split())[:240]
+            return self._fallback_decision(
+                evidence,
+                reasoning="Fallback lexical scorer was used because LLM verification failed.",
+                concern=(
+                    "LLM verification failed during structured parsing and fell back to lexical "
+                    f"scoring: {error_message or type(exc).__name__}."
+                ),
+            )
+
+    def _fallback_decision(
+        self,
+        evidence,
+        reasoning: str,
+        concern: str,
+    ) -> LLMVerificationDecision:
+        top_score = evidence[0].score
+        if top_score >= 0.45:
+            verdict = VerificationLabel.STRONG_SUPPORT
+        elif top_score >= 0.2:
+            verdict = VerificationLabel.PARTIAL_SUPPORT
+        else:
+            verdict = VerificationLabel.UNSUPPORTED_OR_MISLEADING
+
+        return LLMVerificationDecision(
+            verdict=verdict,
+            confidence=min(0.8, max(0.2, top_score)),
+            reasoning=reasoning,
+            used_chunk_ids=[chunk.chunk_id for chunk in evidence[:2]],
+            supported_points=[],
+            unsupported_points=[],
+            concerns=[concern],
         )
