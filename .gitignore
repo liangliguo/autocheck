@@ -12,5 +12,6 @@ inputs/
 data/downloads/
 data/processed/
 data/reports/
+data/workspaces/
 
 uv.lock
