@@ -260,7 +260,7 @@ def _render_page(
       font-size: clamp(36px, 7vw, 72px);
       line-height: 0.94;
       letter-spacing: -0.04em;
-      max-width: 10ch;
+      max-width: none;
     }}
     .lead {{
       margin: 0;
@@ -493,7 +493,7 @@ def _render_page(
   <div class="shell">
     <section class="hero">
       <span class="eyebrow">AutoCheck Studio</span>
-      <h1>把论文引用核验变成可视化流程</h1>
+      <h1>论文引用核验可视化工作台</h1>
       <p class="lead">上传 PDF、TXT、MD，或者直接粘贴草稿文本。页面会调用现有 AutoCheck 流水线，并把摘要、参考文献匹配和逐条 assessment 直接展示出来。</p>
     </section>
 
