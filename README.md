@@ -105,7 +105,7 @@ uv run autocheck run <source> [options]
 ```
 
 - `source`
-  输入论文路径，支持 `PDF`、`TXT`、`MD`
+  输入论文路径或论文链接，支持 `PDF`、`TXT`、`MD`
 - `-o, --report-dir`
   报告输出目录
   默认值：`data/workspaces/<source-stem>/reports`
@@ -188,6 +188,12 @@ uv run pytest
 uv run autocheck run tests/fixtures/sample_draft.txt -s
 ```
 
+直接输入论文链接：
+
+```bash
+uv run autocheck run https://arxiv.org/abs/1706.03762 -n 3
+```
+
 指定输出目录：
 
 ```bash
@@ -251,6 +257,12 @@ mkdir -p data/workspaces
 ```bash
 mkdir -p inputs
 curl -L https://arxiv.org/pdf/1706.03762.pdf -o inputs/attention-is-all-you-need.pdf
+```
+
+或者直接把论文链接作为输入：
+
+```bash
+uv run autocheck run https://arxiv.org/abs/1706.03762 -n 5
 ```
 
 ### 3. 真实重跑
@@ -335,6 +347,7 @@ uv run autocheck run your-paper.pdf -n 3
 ## 当前实现边界
 
 - 支持 `PDF`、`TXT`、`MD`
+- 支持本地文件路径和可直接下载的论文链接输入
 - 默认按主论文名为每篇输入创建独立工作目录
 - 参考文献寻址优先走 `OpenAlex`，再回退到 `arXiv`
 - 部分引用会因为 PDF 提取噪声产生误解析
@@ -356,4 +369,5 @@ uv sync --dev
 uv run pytest
 uv run autocheck run tests/fixtures/sample_draft.txt -s
 uv run autocheck run inputs/attention-is-all-you-need.pdf -n 3
+uv run autocheck run https://arxiv.org/abs/1706.03762 -n 3
 ```
