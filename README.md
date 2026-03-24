@@ -22,6 +22,7 @@ autocheck/
 ├── inputs/             # 输入论文 PDF
 ├── src/autocheck/
 ├── tests/
+├── LICENSE
 ├── .env.example
 ├── pyproject.toml
 └── uv.lock
@@ -114,11 +115,16 @@ uv run autocheck run <source> [options]
 
 ### 环境变量
 
+说明：
+
+- 下列“默认值”指代码里的内置默认值
+- `.env.example` 里提供的是推荐模板值，不完全等同于代码默认值
+
 - `OPENAI_API_KEY`
   OpenAI 或 OpenAI 兼容代理的 API Key
 - `AUTOCHECK_OPENAI_BASE_URL`
   OpenAI 兼容接口地址
-  默认值：`https://ai.td.ee`
+  默认值：空，留空时使用 SDK 默认地址
 - `AUTOCHECK_OPENAI_TIMEOUT`
   请求超时秒数
   默认值：`120`
@@ -133,7 +139,7 @@ uv run autocheck run <source> [options]
   默认值：`true`
 - `AUTOCHECK_MODEL_REASONING_EFFORT`
   推理强度
-  默认值：`xhigh`
+  默认值：空，留空时不显式传递该参数
 - `AUTOCHECK_ENABLE_LLM_EXTRACTION`
   是否用 LLM 做声明和参考文献抽取
   默认值：`false`
@@ -272,7 +278,7 @@ ls -lh data/reports
 ```
 
 ```bash
-python3 - <<'PY'
+uv run python - <<'PY'
 import json
 from pathlib import Path
 p = Path("data/reports/attention-is-all-you-need.report.json")
@@ -330,6 +336,12 @@ uv run autocheck run your-paper.pdf -n 3
 - 部分引用会因为 PDF 提取噪声产生误解析
 - 开放获取不到的参考文献会落到 `not_found`
 - 长论文在 `gpt-5.4 + xhigh` 下逐条核验会比较慢
+
+## 许可证
+
+本项目采用 `MIT` 许可证。
+
+完整条款见 [`LICENSE`](LICENSE)。
 
 ## 已验证命令
 

@@ -3,6 +3,7 @@ name = "autocheck"
 version = "0.1.0"
 description = "Use LangChain to verify whether citation-backed claims are supported by the cited source papers."
 readme = "README.md"
+license = {file = "LICENSE"}
 requires-python = ">=3.9"
 dependencies = [
   "langchain>=0.3",
