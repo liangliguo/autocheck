@@ -17,7 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="Run the full verification pipeline.")
-    run_parser.add_argument("source", help="Path to the PDF or text manuscript.")
+    run_parser.add_argument("source", help="Path or URL to the PDF or text manuscript.")
     run_parser.add_argument(
         "-o",
         "--report-dir",
@@ -117,12 +117,11 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "run":
-        source_path = Path(args.source)
         settings = AppSettings.from_env(project_root=Path.cwd())
         pipeline = AutoCheckPipeline(settings)
         final_event: PipelineEvent | None = None
         for event in pipeline.run_incremental(
-            source_path=source_path,
+            source_path=args.source,
             report_dir=args.report_dir,
             skip_download=args.skip_download,
             max_references=args.max_references,

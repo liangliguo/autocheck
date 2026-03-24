@@ -203,6 +203,46 @@ def test_pipeline_uses_per_source_workspace_directories(tmp_path, monkeypatch) -
     assert (workspace_dir / "processed" / "library_index.json").exists()
 
 
+def test_pipeline_accepts_source_url_and_downloads_into_workspace(tmp_path, monkeypatch) -> None:
+    project_root = tmp_path
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("AUTOCHECK_OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+
+    remote_text = (
+        "Transformers significantly improve sequence modeling quality on long-context tasks [1].\n\n"
+        "References\n"
+        "[1] Vaswani, A., Shazeer, N., Parmar, N., et al. Attention Is All You Need. 2017.\n"
+    )
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"content-type": "text/plain"}
+        url = "https://example.com/papers/attention-note.txt"
+        content = remote_text.encode("utf-8")
+
+        def raise_for_status(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "autocheck.services.source_resolver.requests.get",
+        lambda *_args, **_kwargs: FakeResponse(),
+    )
+
+    settings = AppSettings.from_env(project_root=project_root)
+    pipeline = AutoCheckPipeline(settings)
+    report, paths = pipeline.run(
+        source_path="https://example.com/papers/attention-note.txt",
+        skip_download=True,
+    )
+
+    workspace_dir = project_root / "data" / "workspaces" / "attention-note"
+    assert report.source_path.endswith("data/workspaces/attention-note/inputs/attention-note.txt")
+    assert paths["json"] == workspace_dir / "reports" / "attention-note.report.json"
+    assert (workspace_dir / "inputs" / "attention-note.txt").exists()
+
+
 def test_numeric_citation_matching_is_exact() -> None:
     references = [
         ReferenceEntry(ref_id="[1]", raw_text="[1] First ref", aliases=["[1]"]),

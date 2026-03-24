@@ -6,6 +6,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from autocheck.services.source_resolver import source_stem
 from autocheck.utils.text import slugify
 
 
@@ -114,8 +115,7 @@ class AppSettings:
             path.mkdir(parents=True, exist_ok=True)
 
     def workspace_name_for_source(self, source_path: str | Path) -> str:
-        source = Path(source_path)
-        return slugify(source.stem, fallback="paper")
+        return slugify(source_stem(source_path), fallback="paper")
 
     def workspace_for_source(
         self,

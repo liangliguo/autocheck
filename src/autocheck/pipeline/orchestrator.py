@@ -23,6 +23,7 @@ from autocheck.schemas.models import (
 from autocheck.services.evidence_retriever import EvidenceRetriever
 from autocheck.services.reference_manager import ReferenceManager
 from autocheck.services.report_writer import ReportWriter
+from autocheck.services.source_resolver import resolve_source_input
 from autocheck.utils.citations import match_citation_to_reference
 from autocheck.utils.text import slugify
 
@@ -79,22 +80,28 @@ class AutoCheckPipeline:
         max_references: int | None = None,
     ) -> Iterator[PipelineEvent]:
         self._last_run_result = None
-        source = Path(source_path)
+        requested_source = source_path
+        source = Path(source_path) if isinstance(source_path, Path) else source_path
         workspace = self.settings.workspace_for_source(source, workspace_dir=workspace_dir)
         workspace.ensure_directories()
         library = PaperLibrary(workspace.downloads_dir, workspace.processed_dir)
         reference_manager = ReferenceManager(library)
         verifier = ClaimCitationVerifier(library, self.retriever, self.verify_model)
+        resolved_source = resolve_source_input(
+            requested_source,
+            workspace,
+            timeout=self.settings.openai_timeout,
+        )
         output_dir = Path(report_dir) if report_dir else workspace.reports_dir
-        stem = slugify(source.stem, fallback="report")
+        stem = slugify(resolved_source.stem, fallback=workspace.name or "report")
         paths = self.report_writer.initialize_incremental_output(output_dir, stem)
 
         yield self._emit_event(
             paths["events"],
             "stage_started",
-            {"stage": "extract", "source_path": str(source.resolve())},
+            {"stage": "extract", "source_path": str(resolved_source.resolve())},
         )
-        parsed_document = self.extractor.extract(source)
+        parsed_document = self.extractor.extract(resolved_source)
         parsed_document = self._apply_reference_limit(parsed_document, max_references=max_references)
 
         total_assessments = self._estimate_assessment_count(parsed_document)
@@ -104,7 +111,7 @@ class AutoCheckPipeline:
 
         self.report_writer.write(
             self._build_report_snapshot(
-                source=source,
+                source=resolved_source,
                 parsed_document=parsed_document,
                 local_records=local_records,
                 assessments=assessments,
@@ -156,7 +163,7 @@ class AutoCheckPipeline:
             assessment_index += 1
             self.report_writer.write(
                 self._build_report_snapshot(
-                    source=source,
+                    source=resolved_source,
                     parsed_document=parsed_document,
                     local_records=local_records,
                     assessments=assessments,
@@ -191,7 +198,7 @@ class AutoCheckPipeline:
             local_records.append(record)
             self.report_writer.write(
                 self._build_report_snapshot(
-                    source=source,
+                    source=resolved_source,
                     parsed_document=parsed_document,
                     local_records=local_records,
                     assessments=assessments,
@@ -221,9 +228,9 @@ class AutoCheckPipeline:
                 assessments.append(assessment)
                 assessment_index += 1
                 self.report_writer.write(
-                    self._build_report_snapshot(
-                        source=source,
-                        parsed_document=parsed_document,
+                self._build_report_snapshot(
+                    source=resolved_source,
+                    parsed_document=parsed_document,
                         local_records=local_records,
                         assessments=assessments,
                         total_references=total_references,
@@ -260,7 +267,7 @@ class AutoCheckPipeline:
         )
 
         final_report = self._build_report_snapshot(
-            source=source,
+            source=resolved_source,
             parsed_document=parsed_document,
             local_records=local_records,
             assessments=assessments,
