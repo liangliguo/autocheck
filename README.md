@@ -185,6 +185,12 @@ uv run pytest
 uv run autocheck run tests/fixtures/sample_draft.txt -s
 ```
 
+启动本地可视化页面：
+
+```bash
+uv run autocheck web --host 127.0.0.1 --port 8000
+```
+
 指定输出目录：
 
 ```bash
@@ -231,6 +237,35 @@ data/reports/<stem>.events.jsonl
 - `.report.json` 是完整结构化报告
 - `.report.md` 是便于阅读的 Markdown 报告
 - `.events.jsonl` 是增量事件流
+
+## Web 可视化界面
+
+除了 CLI，现在还可以直接启动本地页面：
+
+```bash
+uv run autocheck web
+```
+
+默认地址：
+
+```text
+http://127.0.0.1:8000
+```
+
+页面支持：
+
+- 上传 `PDF`、`TXT`、`MD`
+- 直接粘贴论文或草稿文本
+- 设置 `max references`
+- 设置自定义报告输出目录
+- 选择是否跳过参考文献下载
+- 在页面里查看摘要卡片、参考文献列表、assessment 结果和 Markdown 报告预览
+
+适合本地单用户联调：
+
+- 想快速试输入输出链路
+- 不想只看 CLI 文本流
+- 需要把报告结果直接展示给非命令行用户
 
 ## 从零开始跑真实论文
 
@@ -352,4 +387,5 @@ uv sync --dev
 uv run pytest
 uv run autocheck run tests/fixtures/sample_draft.txt -s
 uv run autocheck run inputs/attention-is-all-you-need.pdf -n 3
+uv run autocheck web --help
 ```

@@ -6,6 +6,7 @@ from pathlib import Path
 from autocheck.config.settings import AppSettings
 from autocheck.pipeline.orchestrator import AutoCheckPipeline
 from autocheck.schemas.models import PipelineEvent
+from autocheck.web.app import create_app, run_web_server
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -35,6 +36,19 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Testing helper: process only the first N parsed references and their linked checks.",
+    )
+
+    web_parser = subparsers.add_parser("web", help="Launch the local web UI.")
+    web_parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host interface for the local web UI.",
+    )
+    web_parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port for the local web UI.",
     )
 
     return parser
@@ -129,3 +143,13 @@ def main() -> None:
         print(f"JSON report: {paths['json']}")
         print(f"Markdown report: {paths['markdown']}")
         print(f"Events stream: {paths['events']}")
+        return
+
+    if args.command == "web":
+        settings = AppSettings.from_env(project_root=Path.cwd())
+        app = create_app(settings)
+        print(
+            f"[AutoCheck] Web UI running at http://{args.host}:{args.port}",
+            flush=True,
+        )
+        run_web_server(app, host=args.host, port=args.port)
