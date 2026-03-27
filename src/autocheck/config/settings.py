@@ -42,9 +42,6 @@ class AppSettings:
     project_root: Path
     data_dir: Path
     workspaces_dir: Path
-    downloads_dir: Path
-    processed_dir: Path
-    reports_dir: Path
     chat_model: str
     extract_model: str
     verify_model: str
@@ -70,9 +67,6 @@ class AppSettings:
             project_root=root,
             data_dir=data_dir,
             workspaces_dir=data_dir / "workspaces",
-            downloads_dir=data_dir / "downloads",
-            processed_dir=data_dir / "processed",
-            reports_dir=data_dir / "reports",
             chat_model=os.getenv("AUTOCHECK_CHAT_MODEL", "gpt-5.4"),
             extract_model=os.getenv("AUTOCHECK_EXTRACT_MODEL", ""),
             verify_model=os.getenv("AUTOCHECK_VERIFY_MODEL", "gpt-5.4"),
@@ -108,9 +102,6 @@ class AppSettings:
         for path in (
             self.data_dir,
             self.workspaces_dir,
-            self.downloads_dir,
-            self.processed_dir,
-            self.reports_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
 
