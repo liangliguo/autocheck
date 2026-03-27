@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoCheck Config</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body data-page="config">
+  <div class="shell">
+    <header class="hero">
+      <div class="hero-copy">
+        <span class="eyebrow">AutoCheck Studio</span>
+        <h1>配置页</h1>
+        <p class="lead">这里直接编辑 `.env` 中的 AutoCheck 配置。保存后，当前服务会立即刷新内存中的设置，下一次运行无需重启。</p>
+      </div>
+      <nav class="nav">
+        <a class="nav-link" href="/">运行</a>
+        <a class="nav-link is-active" href="/config">配置</a>
+      </nav>
+    </header>
+
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <h2>配置管理</h2>
+          <p class="section-copy">后端会校验数值类型，并将受支持的配置项写回 `.env`。</p>
+        </div>
+        <span class="status-pill" id="config-status">等待加载</span>
+      </div>
+      <div class="notice is-hidden" id="config-error"></div>
+      <div class="notice notice-success is-hidden" id="config-success"></div>
+      <div class="meta-bar" id="config-meta"></div>
+      <form id="config-form" class="stack">
+        <div id="config-groups">
+          <div class="empty-state">正在加载配置表单…</div>
+        </div>
+        <div class="actions">
+          <button type="submit" id="config-submit">保存配置</button>
+          <button type="button" class="ghost-button" id="config-reset">恢复默认值</button>
+        </div>
+      </form>
+    </section>
+  </div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

@@ -271,6 +271,18 @@ http://127.0.0.1:8000
 - 设置自定义报告输出目录
 - 选择是否跳过参考文献下载
 - 在页面里查看摘要卡片、参考文献列表、assessment 结果和 Markdown 报告预览
+- 前端静态页面与后端 API 已拆分，页面通过 `/api/run`、`/api/config`、`/api/reports/recent` 获取数据
+- 提供单独配置页：
+
+```text
+http://127.0.0.1:8000/config
+```
+
+配置页支持：
+
+- 查看当前生效的 AutoCheck 配置
+- 修改 `.env` 中的 OpenAI、模型、检索参数
+- 保存后立即刷新当前服务内存中的配置，下一次运行无需重启
 
 适合本地单用户联调：
 
@@ -408,4 +420,5 @@ uv run autocheck run tests/fixtures/sample_draft.txt -s
 uv run autocheck run inputs/attention-is-all-you-need.pdf -n 3
 uv run autocheck run https://arxiv.org/abs/1706.03762 -n 3
 uv run autocheck web --help
+uv run pytest -q tests/test_web.py tests/test_cli.py
 ```

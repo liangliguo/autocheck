@@ -16,6 +16,26 @@ from autocheck.schemas.models import (
 )
 from autocheck.web.app import create_app
 
+_TEST_ENV_KEYS = (
+    "OPENAI_API_KEY",
+    "AUTOCHECK_OPENAI_BASE_URL",
+    "AUTOCHECK_OPENAI_TIMEOUT",
+    "AUTOCHECK_OPENAI_MAX_RETRIES",
+    "AUTOCHECK_OPENAI_WIRE_API",
+    "AUTOCHECK_OPENAI_DISABLE_RESPONSE_STORAGE",
+    "AUTOCHECK_MODEL_REASONING_EFFORT",
+    "AUTOCHECK_ENABLE_LLM_EXTRACTION",
+    "AUTOCHECK_ENABLE_LLM_VERIFICATION",
+    "AUTOCHECK_CHAT_MODEL",
+    "AUTOCHECK_EXTRACT_MODEL",
+    "AUTOCHECK_VERIFY_MODEL",
+    "AUTOCHECK_TEMPERATURE",
+    "AUTOCHECK_CHUNK_SIZE",
+    "AUTOCHECK_CHUNK_OVERLAP",
+    "OPENAI_BASE_URL",
+    "OPENAI_API_BASE",
+)
+
 
 class FakePipeline:
     def __init__(self, _settings: AppSettings) -> None:
@@ -112,7 +132,13 @@ class FakePipeline:
         }
 
 
-def test_web_index_renders_form(tmp_path) -> None:
+def _clear_env(monkeypatch) -> None:
+    for key in _TEST_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
+
+def test_web_index_renders_frontend_shell(tmp_path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
     settings = AppSettings.from_env(project_root=tmp_path)
     app = create_app(settings=settings, pipeline_factory=FakePipeline)
     client = TestClient(app)
@@ -121,17 +147,33 @@ def test_web_index_renders_form(tmp_path) -> None:
 
     assert response.status_code == 200
     assert "AutoCheck Studio" in response.text
-    assert "运行 AutoCheck" in response.text
-    assert "填写论文链接" in response.text
+    assert "运行工作台" in response.text
+    assert 'data-page="run"' in response.text
+    assert "/assets/app.js" in response.text
 
 
-def test_web_run_accepts_pasted_text_and_renders_output(tmp_path) -> None:
+def test_web_config_page_renders_frontend_shell(tmp_path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
+    settings = AppSettings.from_env(project_root=tmp_path)
+    app = create_app(settings=settings, pipeline_factory=FakePipeline)
+    client = TestClient(app)
+
+    response = client.get("/config")
+
+    assert response.status_code == 200
+    assert "配置页" in response.text
+    assert 'data-page="config"' in response.text
+    assert "保存配置" in response.text
+
+
+def test_api_run_accepts_pasted_text_and_returns_json(tmp_path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
     settings = AppSettings.from_env(project_root=tmp_path)
     app = create_app(settings=settings, pipeline_factory=FakePipeline)
     client = TestClient(app)
 
     response = client.post(
-        "/run",
+        "/api/run",
         data={
             "manuscript_text": "Transformers use attention [1].\n\nReferences\n[1] Demo paper. 2017.",
             "max_references": "1",
@@ -140,24 +182,28 @@ def test_web_run_accepts_pasted_text_and_renders_output(tmp_path) -> None:
     )
 
     assert response.status_code == 200
-    assert "结果面板" in response.text
-    assert "strong_support" in response.text
-    assert "sample.report.md" in response.text
-    assert "data/workspaces" in response.text
+    payload = response.json()
+    assert payload["report"]["summary"]["strong_support"] == 1
+    assert payload["report_paths"]["markdown"].endswith("sample.report.md")
+    assert payload["markdown_preview"] == "# Demo Report\n"
+    assert "/data/workspaces/" in payload["source_path"]
+    assert payload["recent_reports"][0].endswith("sample.report.json")
 
 
-def test_web_run_rejects_missing_input(tmp_path) -> None:
+def test_api_run_rejects_missing_input(tmp_path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
     settings = AppSettings.from_env(project_root=tmp_path)
     app = create_app(settings=settings, pipeline_factory=FakePipeline)
     client = TestClient(app)
 
-    response = client.post("/run", data={})
+    response = client.post("/api/run", data={})
 
-    assert response.status_code == 200
-    assert "请上传文件、填写论文链接，或在文本框里粘贴论文内容。" in response.text
+    assert response.status_code == 400
+    assert response.json()["detail"] == "请上传文件、填写论文链接，或在文本框里粘贴论文内容。"
 
 
-def test_web_run_accepts_url_input_and_renders_output(tmp_path, monkeypatch) -> None:
+def test_api_run_accepts_url_input_and_returns_json(tmp_path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
     settings = AppSettings.from_env(project_root=tmp_path)
     app = create_app(settings=settings, pipeline_factory=FakePipeline)
     client = TestClient(app)
@@ -172,7 +218,7 @@ def test_web_run_accepts_url_input_and_renders_output(tmp_path, monkeypatch) -> 
     )
 
     response = client.post(
-        "/run",
+        "/api/run",
         data={
             "manuscript_url": "https://arxiv.org/abs/1706.03762",
             "max_references": "1",
@@ -180,28 +226,31 @@ def test_web_run_accepts_url_input_and_renders_output(tmp_path, monkeypatch) -> 
     )
 
     assert response.status_code == 200
-    assert "结果面板" in response.text
-    assert "1706-03762.pdf" in response.text
+    payload = response.json()
+    assert payload["source_path"].endswith("1706-03762.pdf")
+    assert payload["report"]["source_path"].endswith("1706-03762.pdf")
 
 
-def test_web_run_rejects_multiple_input_modes(tmp_path) -> None:
+def test_api_run_rejects_multiple_input_modes(tmp_path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
     settings = AppSettings.from_env(project_root=tmp_path)
     app = create_app(settings=settings, pipeline_factory=FakePipeline)
     client = TestClient(app)
 
     response = client.post(
-        "/run",
+        "/api/run",
         data={
             "manuscript_text": "demo",
             "manuscript_url": "https://arxiv.org/abs/1706.03762",
         },
     )
 
-    assert response.status_code == 200
-    assert "请只选择一种输入方式：上传文件、填写论文链接，或粘贴文本。" in response.text
+    assert response.status_code == 400
+    assert response.json()["detail"] == "请只选择一种输入方式：上传文件、填写论文链接，或粘贴文本。"
 
 
-def test_web_recent_reports_are_collected_from_workspace_directories(tmp_path) -> None:
+def test_api_recent_reports_are_collected_from_workspace_directories(tmp_path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
     settings = AppSettings.from_env(project_root=tmp_path)
     report_path = (
         settings.workspaces_dir
@@ -215,7 +264,74 @@ def test_web_recent_reports_are_collected_from_workspace_directories(tmp_path) -
     app = create_app(settings=settings, pipeline_factory=FakePipeline)
     client = TestClient(app)
 
-    response = client.get("/")
+    response = client.get("/api/reports/recent")
 
     assert response.status_code == 200
-    assert "demo-paper.report.json" in response.text
+    assert response.json()["recent_reports"] == [str(report_path)]
+
+
+def test_api_config_returns_effective_settings(tmp_path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
+    settings = AppSettings.from_env(project_root=tmp_path)
+    app = create_app(settings=settings, pipeline_factory=FakePipeline)
+    client = TestClient(app)
+
+    response = client.get("/api/config")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["env_path"] == str(tmp_path / ".env")
+    assert payload["has_env_file"] is False
+    assert payload["values"]["AUTOCHECK_VERIFY_MODEL"] == "gpt-5.4"
+    assert any(field["key"] == "OPENAI_API_KEY" for field in payload["fields"])
+
+
+def test_api_config_updates_env_and_app_settings(tmp_path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
+    settings = AppSettings.from_env(project_root=tmp_path)
+    app = create_app(settings=settings, pipeline_factory=FakePipeline)
+    client = TestClient(app)
+
+    response = client.put(
+        "/api/config",
+        json={
+            "values": {
+                "AUTOCHECK_VERIFY_MODEL": "gpt-5.4-mini",
+                "AUTOCHECK_ENABLE_LLM_VERIFICATION": False,
+                "AUTOCHECK_CHUNK_SIZE": 3200,
+                "AUTOCHECK_CHUNK_OVERLAP": 400,
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["values"]["AUTOCHECK_VERIFY_MODEL"] == "gpt-5.4-mini"
+    assert payload["values"]["AUTOCHECK_ENABLE_LLM_VERIFICATION"] is False
+    assert client.app.state.settings.verify_model == "gpt-5.4-mini"
+    assert client.app.state.settings.enable_llm_verification is False
+
+    env_text = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "AUTOCHECK_VERIFY_MODEL=gpt-5.4-mini" in env_text
+    assert "AUTOCHECK_ENABLE_LLM_VERIFICATION=false" in env_text
+    assert "AUTOCHECK_CHUNK_SIZE=3200" in env_text
+
+
+def test_api_config_rejects_invalid_chunk_settings(tmp_path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
+    settings = AppSettings.from_env(project_root=tmp_path)
+    app = create_app(settings=settings, pipeline_factory=FakePipeline)
+    client = TestClient(app)
+
+    response = client.put(
+        "/api/config",
+        json={
+            "values": {
+                "AUTOCHECK_CHUNK_SIZE": 300,
+                "AUTOCHECK_CHUNK_OVERLAP": 300,
+            }
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "切块重叠必须小于切块大小。"
