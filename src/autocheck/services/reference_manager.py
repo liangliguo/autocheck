@@ -30,6 +30,13 @@ class ReferenceManager:
         records: List[LocalPaperRecord] = []
         for reference in references:
             existing = self.library.get(reference)
+            if existing and existing.text_path:
+                existing.status = "processed"
+                self.library.ensure_placeholder(reference, status="processed")
+                records.append(existing)
+                yield existing
+                continue
+
             if existing and existing.pdf_path:
                 existing.status = "cached"
                 self.library.ensure_placeholder(reference, status="cached")

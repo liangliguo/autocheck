@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from autocheck.config.settings import PaperWorkspace
+from autocheck.config.settings import AppSettings, PaperWorkspace
 from autocheck.services.source_resolver import (
     download_remote_source_to_workspace,
     is_http_url,
@@ -26,6 +26,14 @@ def test_normalize_remote_source_url_maps_arxiv_abs_to_pdf() -> None:
 
 def test_source_stem_uses_url_path() -> None:
     assert source_stem("https://arxiv.org/pdf/1706.03762.pdf") == "1706.03762"
+
+
+def test_workspace_for_source_preserves_full_remote_identifier(tmp_path) -> None:
+    settings = AppSettings.from_env(project_root=tmp_path)
+
+    workspace = settings.workspace_for_source("https://arxiv.org/abs/1706.03762")
+
+    assert workspace.root_dir == tmp_path / "data" / "workspaces" / "1706-03762"
 
 
 def test_download_remote_source_to_workspace_uses_response_url_and_suffix(monkeypatch, tmp_path) -> None:

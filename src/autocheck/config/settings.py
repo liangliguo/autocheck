@@ -122,9 +122,8 @@ class AppSettings:
         source_path: str | Path,
         workspace_dir: str | Path | None = None,
     ) -> PaperWorkspace:
-        source = Path(source_path)
         if workspace_dir is None:
-            root_dir = self.workspaces_dir / self.workspace_name_for_source(source)
+            root_dir = self.workspaces_dir / self.workspace_name_for_source(source_path)
         else:
             root_dir = Path(workspace_dir)
             if not root_dir.is_absolute():

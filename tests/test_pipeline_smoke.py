@@ -17,6 +17,7 @@ from autocheck.schemas.models import (
 )
 from autocheck.repository.library import PaperLibrary
 from autocheck.services.evidence_retriever import EvidenceRetriever
+from autocheck.services.reference_manager import ReferenceManager
 from autocheck.utils.citations import extract_cited_sentences, match_citation_to_reference
 
 
@@ -375,6 +376,26 @@ def test_library_uses_reference_identity_not_local_numeric_marker(tmp_path) -> N
 
     assert library.get(first_reference).title == "First paper"
     assert library.get(second_reference).title == "Second paper"
+
+
+def test_reference_manager_reuses_processed_text_without_marking_skip(tmp_path) -> None:
+    library = PaperLibrary(tmp_path / "downloads", tmp_path / "processed")
+    library.downloads_dir.mkdir(parents=True, exist_ok=True)
+    library.processed_dir.mkdir(parents=True, exist_ok=True)
+    manager = ReferenceManager(library)
+    reference = ReferenceEntry(
+        ref_id="[1]",
+        raw_text="[1] First paper. 2017.",
+        title="First paper",
+        authors=["Author A"],
+        year=2017,
+    )
+    library.save_text(reference, "cached text")
+
+    record = next(manager.iter_prepare_references([reference], skip_download=True))
+
+    assert record.status == "processed"
+    assert record.text_path is not None
 
 
 def test_verifier_falls_back_when_structured_llm_parsing_fails(tmp_path) -> None:
