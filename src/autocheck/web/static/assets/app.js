@@ -278,7 +278,7 @@ async function initRunPage() {
       statusPill.textContent = "运行失败";
     } finally {
       submitButton.disabled = false;
-      submitButton.textContent = "运行 AutoCheck";
+      submitButton.textContent = "提交核验任务";
     }
   });
 }

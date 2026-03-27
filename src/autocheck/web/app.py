@@ -41,7 +41,7 @@ def create_app(
     resolved_settings = settings or AppSettings.from_env(project_root=Path.cwd())
     resolved_settings.ensure_directories()
 
-    app = FastAPI(title="AutoCheck Studio")
+    app = FastAPI(title="AutoCheck 论文引用核验系统")
     app.state.settings = resolved_settings
     app.state.pipeline_factory = pipeline_factory
     app.state.config_service = ConfigService(project_root=resolved_settings.project_root)

@@ -146,8 +146,8 @@ def test_web_index_renders_frontend_shell(tmp_path, monkeypatch) -> None:
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "AutoCheck Studio" in response.text
-    assert "运行工作台" in response.text
+    assert "AutoCheck 论文引用核验系统" in response.text
+    assert "论文引用核验系统" in response.text
     assert 'data-page="run"' in response.text
     assert "/assets/app.js" in response.text
 
@@ -161,7 +161,7 @@ def test_web_config_page_renders_frontend_shell(tmp_path, monkeypatch) -> None:
     response = client.get("/config")
 
     assert response.status_code == 200
-    assert "配置页" in response.text
+    assert "系统配置管理" in response.text
     assert 'data-page="config"' in response.text
     assert "保存配置" in response.text
 
