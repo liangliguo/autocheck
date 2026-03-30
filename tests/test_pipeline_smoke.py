@@ -398,6 +398,46 @@ def test_reference_manager_reuses_processed_text_without_marking_skip(tmp_path) 
     assert record.text_path is not None
 
 
+def test_reference_manager_retries_title_with_case_variants(tmp_path) -> None:
+    library = PaperLibrary(tmp_path / "downloads", tmp_path / "processed")
+    library.downloads_dir.mkdir(parents=True, exist_ok=True)
+    library.processed_dir.mkdir(parents=True, exist_ok=True)
+    manager = ReferenceManager(library)
+    reference = ReferenceEntry(
+        ref_id="[1]",
+        raw_text="[1] Attention Is All You Need. 2017.",
+        title="Attention Is All You Need",
+        authors=["Ashish Vaswani"],
+        year=2017,
+    )
+
+    class LowerOnlyResolver:
+        name = "lower-only"
+
+        def locate(self, candidate_reference: ReferenceEntry):
+            if candidate_reference.title != "attention is all you need":
+                return None
+            return type(
+                "Match",
+                (),
+                {
+                    "title": candidate_reference.title,
+                    "pdf_url": "https://example.com/lower.pdf",
+                    "landing_page_url": "https://example.com/lower",
+                    "resolver_name": "lower-only",
+                },
+            )()
+
+    manager.resolvers = [LowerOnlyResolver()]
+    manager._download_pdf = lambda _match: b"%PDF-1.4 demo"  # type: ignore[method-assign]
+
+    record = next(manager.iter_prepare_references([reference]))
+
+    assert record.status == "downloaded"
+    assert record.pdf_path is not None
+    assert record.title == "attention is all you need"
+
+
 def test_verifier_falls_back_when_structured_llm_parsing_fails(tmp_path) -> None:
     settings = AppSettings.from_env(project_root=tmp_path)
     library = PaperLibrary(tmp_path / "downloads", tmp_path / "processed")
