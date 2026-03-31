@@ -29,8 +29,11 @@
 
 ```bash
 # 克隆仓库
-git clone <repository-url>
+git clone https://github.com/liangliguo/autocheck.git
 cd autocheck
+
+# 切换到 API 兼容分支（支持阿里云 Qwen 等第三方 API）
+git checkout fix/api-compatibility
 
 # 安装依赖
 uv sync --dev
