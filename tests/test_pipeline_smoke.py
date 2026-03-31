@@ -428,7 +428,8 @@ def test_reference_manager_retries_title_with_case_variants(tmp_path) -> None:
                 },
             )()
 
-    manager.resolvers = [LowerOnlyResolver()]
+    manager.metadata_resolvers = [LowerOnlyResolver()]
+    manager.download_resolvers = []  # Disable Sci-Hub for this test
     manager._download_pdf = lambda _match: b"%PDF-1.4 demo"  # type: ignore[method-assign]
 
     record = next(manager.iter_prepare_references([reference]))

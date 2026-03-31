@@ -112,6 +112,19 @@ function renderRunResult(container, payload) {
     `<li class="path-item"><strong>${escapeHtml(key)}</strong>：${escapeHtml(value)}</li>`
   )).join("");
 
+  // Extract workspace name from source path for export links
+  const sourcePath = payload.source_path || report.source_path || "";
+  const workspaceMatch = sourcePath.match(/workspaces\/([^\/]+)\//);
+  const workspaceName = workspaceMatch ? workspaceMatch[1] : null;
+
+  const exportButtons = workspaceName ? `
+    <div class="export-buttons">
+      <a class="button" href="/api/export/references/${escapeHtml(workspaceName)}" download>导出参考文献 PDF</a>
+      <a class="button" href="/api/export/reports/${escapeHtml(workspaceName)}" download>导出报告文件</a>
+      <a class="button" href="/api/export/workspace/${escapeHtml(workspaceName)}" download>导出全部文件</a>
+    </div>
+  ` : '';
+
   container.innerHTML = `
     <div class="metrics">
       <div class="metric"><span>Claims</span><strong>${escapeHtml(summary.total_claims)}</strong></div>
@@ -121,6 +134,7 @@ function renderRunResult(container, payload) {
       <div class="metric"><span>Unsupported</span><strong>${escapeHtml(summary.unsupported_or_misleading)}</strong></div>
       <div class="metric"><span>Not Found</span><strong>${escapeHtml(summary.not_found)}</strong></div>
     </div>
+    ${exportButtons}
     <ul class="meta-list">
       <li class="meta-item"><strong>状态：</strong>${escapeHtml(report.status)}</li>
       <li class="meta-item"><strong>输入源：</strong>${escapeHtml(payload.source_path || report.source_path)}</li>

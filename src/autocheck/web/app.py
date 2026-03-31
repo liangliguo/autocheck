@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable
@@ -7,7 +9,7 @@ from uuid import uuid4
 
 import requests
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -124,6 +126,89 @@ def create_app(
             markdown_preview=markdown,
             recent_reports=_recent_reports(settings),
         )
+
+    @app.get("/api/export/workspace/{workspace_name}")
+    def export_workspace(workspace_name: str, request: Request) -> StreamingResponse:
+        """Export all files from a workspace as a ZIP file."""
+        settings = _settings_from_request(request)
+        workspace_path = settings.workspaces_dir / workspace_name
+        if not workspace_path.exists():
+            raise HTTPException(status_code=404, detail=f"Workspace '{workspace_name}' not found.")
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            for file_path in workspace_path.rglob("*"):
+                if file_path.is_file():
+                    arcname = file_path.relative_to(workspace_path)
+                    zip_file.write(file_path, arcname)
+
+        zip_buffer.seek(0)
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={workspace_name}.zip"},
+        )
+
+    @app.get("/api/export/references/{workspace_name}")
+    def export_references(workspace_name: str, request: Request) -> StreamingResponse:
+        """Export downloaded PDFs from a workspace as a ZIP file."""
+        settings = _settings_from_request(request)
+        workspace_path = settings.workspaces_dir / workspace_name
+        downloads_path = workspace_path / "downloads"
+        if not downloads_path.exists():
+            raise HTTPException(status_code=404, detail=f"No downloaded references found for '{workspace_name}'.")
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            for file_path in downloads_path.glob("*.pdf"):
+                zip_file.write(file_path, file_path.name)
+
+        zip_buffer.seek(0)
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={workspace_name}-references.zip"},
+        )
+
+    @app.get("/api/export/reports/{workspace_name}")
+    def export_reports(workspace_name: str, request: Request) -> StreamingResponse:
+        """Export all reports from a workspace as a ZIP file."""
+        settings = _settings_from_request(request)
+        workspace_path = settings.workspaces_dir / workspace_name
+        reports_path = workspace_path / "reports"
+        if not reports_path.exists():
+            raise HTTPException(status_code=404, detail=f"No reports found for '{workspace_name}'.")
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            for file_path in reports_path.glob("*"):
+                if file_path.is_file():
+                    zip_file.write(file_path, file_path.name)
+
+        zip_buffer.seek(0)
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={workspace_name}-reports.zip"},
+        )
+
+    @app.get("/api/workspaces")
+    def list_workspaces(request: Request) -> dict:
+        """List all available workspaces."""
+        settings = _settings_from_request(request)
+        if not settings.workspaces_dir.exists():
+            return {"workspaces": []}
+        workspaces = []
+        for workspace_path in settings.workspaces_dir.iterdir():
+            if workspace_path.is_dir():
+                downloads_count = len(list((workspace_path / "downloads").glob("*.pdf"))) if (workspace_path / "downloads").exists() else 0
+                reports_count = len(list((workspace_path / "reports").glob("*.json"))) if (workspace_path / "reports").exists() else 0
+                workspaces.append({
+                    "name": workspace_path.name,
+                    "downloads_count": downloads_count,
+                    "reports_count": reports_count,
+                })
+        return {"workspaces": workspaces}
 
     return app
 

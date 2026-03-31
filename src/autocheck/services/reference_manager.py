@@ -6,14 +6,18 @@ import requests
 
 from autocheck.repository.library import PaperLibrary
 from autocheck.resolvers.arxiv import ArxivResolver
+from autocheck.resolvers.crossref import CrossRefResolver
 from autocheck.resolvers.openalex import OpenAlexResolver
+from autocheck.resolvers.scihub import SciHubResolver
 from autocheck.schemas.models import LocalPaperRecord, ReferenceEntry, ResolverMatch
 
 
 class ReferenceManager:
     def __init__(self, library: PaperLibrary) -> None:
         self.library = library
-        self.resolvers = [OpenAlexResolver(), ArxivResolver()]
+        # Order: OpenAlex (open access), arXiv, CrossRef (metadata), Sci-Hub (last resort)
+        self.metadata_resolvers = [OpenAlexResolver(), ArxivResolver(), CrossRefResolver()]
+        self.download_resolvers = [SciHubResolver()]
 
     def prepare_references(
         self,
@@ -59,10 +63,14 @@ class ReferenceManager:
             yield record
 
     def _download_reference(self, reference: ReferenceEntry) -> LocalPaperRecord:
-        if not reference.title and not reference.arxiv_id:
-            return self.library.mark_failure(reference, "not_found", "Missing title and arXiv id.")
+        if not reference.title and not reference.arxiv_id and not reference.doi:
+            return self.library.mark_failure(reference, "not_found", "Missing title, arXiv id, and DOI.")
 
-        for resolver in self.resolvers:
+        last_error = "No PDF source found."
+        found_match: ResolverMatch | None = None
+
+        # Phase 1: Try metadata resolvers (OpenAlex, arXiv, CrossRef) which may have PDFs
+        for resolver in self.metadata_resolvers:
             for candidate_reference in self._reference_candidates(reference):
                 try:
                     match = resolver.locate(candidate_reference)
@@ -70,20 +78,51 @@ class ReferenceManager:
                     last_error = f"{resolver.name}: {exc}"
                     continue
 
-                if not match or not match.pdf_url:
+                if not match:
                     continue
 
+                # If match has PDF, try to download it
+                if match.pdf_url:
+                    try:
+                        pdf_bytes = self._download_pdf(match)
+                        return self.library.save_download(reference, match, pdf_bytes)
+                    except Exception as exc:
+                        last_error = f"{resolver.name}: {exc}"
+                
+                # Keep the match for DOI-based fallback
+                if match.external_id and match.external_id.startswith("doi:"):
+                    found_match = match
+
+        # Phase 2: If we have a DOI (from reference or found match), try Sci-Hub
+        doi_to_try = reference.doi
+        if not doi_to_try and found_match and found_match.external_id:
+            doi_to_try = found_match.external_id.replace("doi:", "")
+        
+        if doi_to_try:
+            doi_reference = reference.model_copy(update={"doi": doi_to_try})
+            for resolver in self.download_resolvers:
                 try:
-                    pdf_bytes = self._download_pdf(match)
-                    return self.library.save_download(reference, match, pdf_bytes)
+                    match = resolver.locate(doi_reference)
                 except Exception as exc:
                     last_error = f"{resolver.name}: {exc}"
+                    continue
 
-        return self.library.mark_failure(
-            reference,
-            "not_found",
-            locals().get("last_error", "No open-access PDF match found."),
-        )
+                if match and match.pdf_url:
+                    try:
+                        pdf_bytes = self._download_pdf(match)
+                        # Use found_match metadata if available
+                        final_match = match
+                        if found_match:
+                            final_match = match.model_copy(update={
+                                "title": found_match.title or match.title,
+                                "authors": found_match.authors or match.authors,
+                                "year": found_match.year or match.year,
+                            })
+                        return self.library.save_download(reference, final_match, pdf_bytes)
+                    except Exception as exc:
+                        last_error = f"{resolver.name}: {exc}"
+
+        return self.library.mark_failure(reference, "not_found", last_error)
 
     def _download_pdf(self, match: ResolverMatch) -> bytes:
         response = requests.get(match.pdf_url, timeout=60)
