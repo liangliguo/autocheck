@@ -14,13 +14,13 @@ from autocheck.schemas.models import LocalPaperRecord, ReferenceEntry, ResolverM
 
 
 class ReferenceManager:
-    def __init__(self, library: PaperLibrary) -> None:
+    def __init__(self, library: PaperLibrary, scihub_url: str = "") -> None:
         self.library = library
         # Order: OpenAlex (open access), arXiv, CrossRef (metadata), Sci-Hub (last resort)
         self.metadata_resolvers = [OpenAlexResolver(), ArxivResolver(), CrossRefResolver()]
-        self.download_resolvers = [SciHubResolver()]
+        self.download_resolvers = [SciHubResolver(custom_url=scihub_url)]
         # TitleDownloader for fallback: arXiv search + CrossRef->Sci-Hub
-        self.title_downloader = TitleDownloader()
+        self.title_downloader = TitleDownloader(scihub_url=scihub_url)
 
     def prepare_references(
         self,

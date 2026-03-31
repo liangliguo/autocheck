@@ -157,10 +157,17 @@ class TitleDownloader:
     2. Search CrossRef for DOI, then download from Sci-Hub
     """
 
-    def __init__(self, scihub_mirrors: list[str] | None = None) -> None:
+    def __init__(self, scihub_url: str = "", scihub_mirrors: list[str] | None = None) -> None:
         self.arxiv_resolver = ArxivResolver()
         self.crossref_resolver = CrossRefResolver()
-        self.scihub_mirrors = scihub_mirrors or SCIHUB_MIRRORS
+        # Support both custom URL and mirror list
+        if scihub_url:
+            # Custom URL takes priority
+            self.scihub_mirrors = [scihub_url] + [m for m in SCIHUB_MIRRORS if m != scihub_url]
+        elif scihub_mirrors:
+            self.scihub_mirrors = scihub_mirrors
+        else:
+            self.scihub_mirrors = SCIHUB_MIRRORS
 
     def download_by_title(
         self,

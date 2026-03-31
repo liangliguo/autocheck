@@ -58,6 +58,7 @@ class AppSettings:
     enable_llm_extraction: bool
     enable_llm_verification: bool
     structured_output_method: str  # "function_calling" or "json_mode"
+    scihub_url: str  # Custom Sci-Hub mirror URL
 
     @classmethod
     def from_env(cls, project_root: Path | None = None) -> "AppSettings":
@@ -98,6 +99,7 @@ class AppSettings:
                 default=True,
             ),
             structured_output_method=os.getenv("AUTOCHECK_STRUCTURED_OUTPUT_METHOD", "function_calling"),
+            scihub_url=os.getenv("AUTOCHECK_SCIHUB_URL", ""),
         )
 
     def ensure_directories(self) -> None:

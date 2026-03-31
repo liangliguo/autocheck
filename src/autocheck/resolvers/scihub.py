@@ -13,17 +13,35 @@ class SciHubResolver:
     Resolver that downloads PDFs from Sci-Hub using DOI.
     
     Note: Sci-Hub mirrors change frequently. This resolver tries multiple known mirrors.
+    Supports custom mirror URL via configuration.
     """
     
     name = "scihub"
     
     # Common Sci-Hub mirrors (may need updates as domains change)
-    mirrors = [
+    default_mirrors = [
         "https://sci-hub.se",
         "https://sci-hub.st",
         "https://sci-hub.ru",
         "https://sci-hub.ren",
     ]
+    
+    def __init__(self, custom_url: str = ""):
+        """
+        Initialize SciHubResolver with optional custom mirror URL.
+        
+        Args:
+            custom_url: Custom Sci-Hub mirror URL. If provided, it will be tried first.
+        """
+        self.custom_url = custom_url.strip() if custom_url else ""
+        self.mirrors = self._build_mirror_list()
+    
+    def _build_mirror_list(self) -> list[str]:
+        """Build mirror list with custom URL first if provided."""
+        if self.custom_url:
+            # Custom URL takes priority
+            return [self.custom_url] + [m for m in self.default_mirrors if m != self.custom_url]
+        return list(self.default_mirrors)
     
     def locate(self, reference: ReferenceEntry) -> Optional[ResolverMatch]:
         """Locate a paper on Sci-Hub by DOI."""

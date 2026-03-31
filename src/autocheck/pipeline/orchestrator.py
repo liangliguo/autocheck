@@ -88,7 +88,7 @@ class AutoCheckPipeline:
         workspace = self.settings.workspace_for_source(source, workspace_dir=workspace_dir)
         workspace.ensure_directories()
         library = PaperLibrary(workspace.downloads_dir, workspace.processed_dir)
-        reference_manager = ReferenceManager(library)
+        reference_manager = ReferenceManager(library, scihub_url=self.settings.scihub_url)
         verifier = ClaimCitationVerifier(
             library,
             self.retriever,

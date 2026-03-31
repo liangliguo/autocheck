@@ -233,6 +233,17 @@ _FIELD_SPECS: tuple[ConfigFieldSpec, ...] = (
         default="function_calling",
         placeholder="function_calling",
     ),
+    ConfigFieldSpec(
+        key="AUTOCHECK_SCIHUB_URL",
+        attr_name="scihub_url",
+        group="下载配置",
+        label="Sci-Hub 镜像地址",
+        control="text",
+        value_type="string",
+        description="自定义 Sci-Hub 镜像网址（如 https://sci-hub.se），留空使用默认镜像列表。",
+        default="",
+        placeholder="https://sci-hub.se",
+    ),
 )
 
 _FIELD_BY_KEY = {spec.key: spec for spec in _FIELD_SPECS}
