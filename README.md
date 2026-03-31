@@ -32,8 +32,8 @@
 git clone https://github.com/liangliguo/autocheck.git
 cd autocheck
 
-# 切换到 API 兼容分支（支持阿里云 Qwen 等第三方 API）
-git checkout fix/api-compatibility
+# 切换到 Web UI 分支（支持 Web 界面和阿里云 Qwen 等第三方 API）
+git checkout feature/web-ui
 
 # 安装依赖
 uv sync --dev
@@ -496,6 +496,7 @@ uv run autocheck run your-paper.pdf -n 3
 完整条款见 [`LICENSE`](LICENSE)。
 
 ## 已验证命令
+
 
 本仓库已经实际跑通过这些命令：
 
