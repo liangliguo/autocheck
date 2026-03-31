@@ -91,6 +91,16 @@ uv run autocheck run your-paper.pdf
 
 完成！现在可以开始核验论文引用了。
 
+### 6. 部署到公网（可选）
+
+如果你想让其他人也能访问，可以将 AutoCheck 部署到公网服务器。
+
+**查看详细部署指南**：[DEPLOYMENT.md](./DEPLOYMENT.md)
+
+**快速部署到免费云服务：**
+- [Railway.app](https://railway.app/) - 一键部署，$5/月免费额度
+- [Render.com](https://render.com/) - 完全免费，自动从 GitHub 部署
+
 ---
 
 ## 项目结构
