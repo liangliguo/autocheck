@@ -222,6 +222,17 @@ _FIELD_SPECS: tuple[ConfigFieldSpec, ...] = (
         min_value=0,
         step="1",
     ),
+    ConfigFieldSpec(
+        key="AUTOCHECK_STRUCTURED_OUTPUT_METHOD",
+        attr_name="structured_output_method",
+        group="API 兼容",
+        label="结构化输出方法",
+        control="text",
+        value_type="string",
+        description="function_calling（OpenAI/GPT）或 json_mode（第三方 API 兼容）。",
+        default="function_calling",
+        placeholder="function_calling",
+    ),
 )
 
 _FIELD_BY_KEY = {spec.key: spec for spec in _FIELD_SPECS}

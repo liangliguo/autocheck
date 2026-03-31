@@ -167,6 +167,12 @@ uv run autocheck run <source> [options]
 - `AUTOCHECK_CHUNK_OVERLAP`
   证据切块重叠
   默认值：`300`
+- `AUTOCHECK_STRUCTURED_OUTPUT_METHOD`
+  结构化输出方法
+  默认值：`function_calling`
+  可选值：`function_calling`（OpenAI/GPT 推荐）或 `json_mode`（第三方 API 兼容）
+
+> **注意**：`AUTOCHECK_OPENAI_WIRE_API`、`AUTOCHECK_OPENAI_DISABLE_RESPONSE_STORAGE`、`AUTOCHECK_MODEL_REASONING_EFFORT` 仅在使用 OpenAI 原生 API 时生效，第三方兼容 API 会自动忽略这些参数。
 
 ## 常用命令
 
