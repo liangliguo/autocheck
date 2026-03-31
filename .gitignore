@@ -1,12 +1,46 @@
+# Python
 .venv/
-.env
-.uv-cache/
-.pytest_cache/
-.pycache/
+venv/
+env/
+ENV/
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+*.egg
 *.egg-info/
+dist/
+build/
+*.whl
+*.pyo
+*.pyd
+.Python
 
+# Environment variables
+.env
+.env.local
+
+# UV package manager
+.uv-cache/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+*.cover
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Project specific
 conversation-summary.md
 inputs/
 data/downloads/
@@ -14,4 +48,21 @@ data/processed/
 data/reports/
 data/workspaces/
 
-uv.lock
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.cache
+.cache/
+
+# Documentation and demo files
+.github/copilot-instructions.md
+demo_citation_improvement.py
+DEPLOYMENT.md
+CITATION_IMPROVEMENT.md
+To-Do.md
+testpaper.md

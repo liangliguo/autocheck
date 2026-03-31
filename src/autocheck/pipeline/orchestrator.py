@@ -45,7 +45,10 @@ class AutoCheckPipeline:
             else None
         )
 
-        self.extractor = DocumentClaimReferenceExtractor(extract_model)
+        self.extractor = DocumentClaimReferenceExtractor(
+            extract_model,
+            structured_output_method=settings.structured_output_method,
+        )
         self.retriever = EvidenceRetriever(settings)
         self.verify_model = verify_model
         self.report_writer = ReportWriter()
@@ -86,7 +89,12 @@ class AutoCheckPipeline:
         workspace.ensure_directories()
         library = PaperLibrary(workspace.downloads_dir, workspace.processed_dir)
         reference_manager = ReferenceManager(library)
-        verifier = ClaimCitationVerifier(library, self.retriever, self.verify_model)
+        verifier = ClaimCitationVerifier(
+            library,
+            self.retriever,
+            self.verify_model,
+            structured_output_method=self.settings.structured_output_method,
+        )
         resolved_source = resolve_source_input(
             requested_source,
             workspace,

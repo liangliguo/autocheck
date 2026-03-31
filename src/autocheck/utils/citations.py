@@ -28,6 +28,10 @@ def extract_citation_markers(sentence: str) -> List[str]:
     markers: List[str] = []
 
     for match in NUMERIC_CITATION_RE.finditer(sentence):
+        # 过滤掉数学公式中的伪引用（如 x ∈ [0, 1]）
+        if not _is_likely_citation_context(sentence, match.start(), match.end()):
+            continue
+            
         body = match.group("body")
         chunks = [piece.strip() for piece in body.split(",") if piece.strip()]
         for chunk in chunks:
@@ -56,7 +60,14 @@ def extract_cited_sentences(text: str) -> List[str]:
     sentences = re.split(r"(?<=[.!?。])\s+", normalize_whitespace(text))
     results = []
     for sentence in sentences:
-        if NUMERIC_CITATION_RE.search(sentence) or AUTHOR_YEAR_CITATION_RE.search(sentence):
+        # 检查是否包含真正的引用（排除数学符号）
+        has_numeric_citation = False
+        for match in NUMERIC_CITATION_RE.finditer(sentence):
+            if _is_likely_citation_context(sentence, match.start(), match.end()):
+                has_numeric_citation = True
+                break
+        
+        if has_numeric_citation or AUTHOR_YEAR_CITATION_RE.search(sentence):
             results.append(sentence.strip())
     return dedupe_preserve_order(results)
 
@@ -152,3 +163,94 @@ def _extract_numeric_labels(text: str) -> List[str]:
 def _surname(author: str) -> str:
     parts = [part.strip(",.") for part in author.split() if part.strip(",.")]
     return parts[-1] if parts else author
+
+
+def _is_likely_citation_context(text: str, match_start: int, match_end: int) -> bool:
+    """
+    判断一个数字括号匹配是否更可能是文献引用而不是数学符号。
+    
+    通过分析前后文的特征来区分真实引用和数学表达式中的符号（如区间 [0, 1]）。
+    
+    Args:
+        text: 完整文本
+        match_start: 匹配的起始位置
+        match_end: 匹配的结束位置
+        
+    Returns:
+        True 表示更可能是引用，False 表示更可能是数学符号
+    """
+    context_before = text[max(0, match_start - 25):match_start]
+    context_after = text[match_end:min(len(text), match_end + 15)]
+    matched_text = text[match_start:match_end]
+    
+    # 提取匹配中的所有数字
+    numbers = [int(n.strip()) for n in re.findall(r"\d+", matched_text)]
+    
+    # 规则1: 前面紧跟数学符号（强排除信号）
+    # 如: x ∈ [0, 1], r + s ∈ [0, 100]
+    math_symbols_before = r"[∈∉⊂⊆⊃⊇∩∪×·+\-*/=<>≤≥≈∝～]"
+    if re.search(math_symbols_before + r"\s*$", context_before):
+        return False
+    
+    # 规则2: 前面紧跟数学相关关键词（强排除信号）
+    # 如: range [0, 1], interval [0, 100]
+    math_keywords = r"(?:range|interval|from|between|within)\s*$"
+    if re.search(math_keywords, context_before, re.IGNORECASE):
+        return False
+    
+    # 规则3: 检查 "变量名 in/within/at [...]" 模式（排除），但保留 "shown in [...]" 引用模式
+    # 如: value in [0, 1] (排除), as shown in [5] (保留)
+    if re.search(
+        r"(?:value|values|variable|variables|number|numbers|element|elements|probability|probabilities|parameter|parameters)\s+(?:in|within|at)\s*$",
+        context_before,
+        re.IGNORECASE,
+    ):
+        return False
+    
+    # 规则3.5: 检查中文 "值/参数/变量在 [...]" 或 "在...范围/区间 [...]" 模式
+    if re.search(r"(?:值|参数|变量|概率|数值)在\s*$", context_before):
+        return False
+    if re.search(r"(?:在|的)(?:范围|区间)\s*$", context_before):
+        return False
+    
+    # 规则4: [0, 1] 这种特殊模式的额外检查
+    if len(numbers) == 2 and numbers[0] == 0 and numbers[1] == 1:
+        # [0,1]后跟字母或幂次符号（如 [0,1]m, [0,1]^d）必定是数学表达式
+        if re.match(r"^[a-zA-Z^]", context_after):
+            return False
+        # 如果没有明确的引用上下文标志，倾向认为是数学区间
+        if not re.match(r"^[\s.,;。，；)\]]", context_after):
+            return False
+    
+    # 规则5: 句子末尾或后跟标点符号（强引用信号）
+    # 如: claim [1]. 或 work [5],
+    if re.match(r"^[\s.,;:。，；：）\]\n]", context_after) or context_after.strip() == "":
+        return True
+    
+    # 规则6: 数字较大（>20）通常是引用而非数学区间
+    if numbers and max(numbers) > 20:
+        return True
+    
+    # 规则7: 包含多个不连续的数字（如 [1, 5, 9]）更可能是引用列表
+    if len(numbers) >= 3:
+        is_sequential = all(numbers[i] + 1 == numbers[i + 1] for i in range(len(numbers) - 1))
+        # 不连续或超长序列倾向于引用
+        if not is_sequential or len(numbers) > 5:
+            return True
+    
+    # 规则8: 前面有典型的引用引导词（强引用信号）
+    # 如: as shown in [5], according to [10], see [3]
+    citation_keywords = r"(?:shown in|reported in|described in|according to|see|cf\.|ref\.|reference|references|citation)\s*$"
+    if re.search(citation_keywords, context_before, re.IGNORECASE):
+        return True
+    
+    # 规则9: 单个较大的数字（>5）通常是引用
+    if len(numbers) == 1 and numbers[0] > 5:
+        return True
+    
+    # 规则10: 对于很小的数字（<=3）且没有明确引用标志，倾向于非引用
+    if numbers and all(n <= 3 for n in numbers):
+        return False
+    
+    # 默认：其他情况倾向于识别为引用
+    return True
