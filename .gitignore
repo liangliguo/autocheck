@@ -12,34 +12,36 @@ __pycache__/
 dist/
 build/
 *.whl
+*.pyo
+*.pyd
+.Python
 
-# Environment
+# Environment variables
 .env
 .env.local
 
-# UV
+# UV package manager
 .uv-cache/
-uv.lock
 
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
 .tox/
+.hypothesis/
 *.cover
 
-# IDEs
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
+Thumbs.db
 
-# Session files
+# Project specific
 conversation-summary.md
-
-# Data directories
 inputs/
 data/downloads/
 data/processed/
@@ -53,4 +55,6 @@ logs/
 # Temporary files
 *.tmp
 *.temp
+*.bak
+*.cache
 .cache/
