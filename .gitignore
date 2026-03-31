@@ -1,17 +1,56 @@
+# Python
 .venv/
-.env
-.uv-cache/
-.pytest_cache/
-.pycache/
+venv/
+env/
+ENV/
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+*.egg
 *.egg-info/
+dist/
+build/
+*.whl
 
+# Environment
+.env
+.env.local
+
+# UV
+.uv-cache/
+uv.lock
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+*.cover
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Session files
 conversation-summary.md
+
+# Data directories
 inputs/
 data/downloads/
 data/processed/
 data/reports/
 data/workspaces/
 
-uv.lock
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
