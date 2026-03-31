@@ -20,9 +20,14 @@ from autocheck.utils.text import dedupe_preserve_order, normalize_whitespace
 
 
 class DocumentClaimReferenceExtractor:
-    def __init__(self, chat_model: object | None) -> None:
+    def __init__(
+        self,
+        chat_model: object | None,
+        structured_output_method: str = "function_calling",
+    ) -> None:
         self.chat_model = chat_model
         self.loader = DocumentLoader()
+        self.structured_output_method = structured_output_method
 
     def extract(self, source_path: str | Path) -> ParsedDocument:
         path = Path(source_path)
@@ -67,7 +72,7 @@ class DocumentClaimReferenceExtractor:
             )
             chain = prompt | self.chat_model.with_structured_output(
                 LLMClaimExtraction,
-                method="function_calling",
+                method=self.structured_output_method,
             )
             return chain.invoke(
                 {
