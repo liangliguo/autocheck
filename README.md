@@ -11,6 +11,98 @@
 5. 对每条 `claim x citation` 做交叉核验
 6. 输出完整报告和增量事件流
 
+## 快速开始
+
+### 1. 获取免费 API Key
+
+访问 [阿里云百炼平台](https://www.aliyun.com/product/bailian) 免费领取 Qwen API Key：
+
+1. 访问 https://www.aliyun.com/ → 登录/注册阿里云账号
+2. 进入 [百炼平台控制台](https://bailian.console.aliyun.com/)
+3. 在左侧菜单选择「API-KEY 管理」
+4. 点击「创建新的 API-KEY」，系统会生成一个 `sk-` 开头的密钥
+5. 复制并妥善保存该密钥（仅显示一次）
+
+> 💡 **提示**：阿里云百炼提供免费额度，足够测试使用。也可以使用其他兼容 OpenAI 格式的 API。
+
+### 2. 安装依赖
+
+```bash
+# 克隆仓库
+git clone https://github.com/liangliguo/autocheck.git
+cd autocheck
+
+# 切换到 API 兼容分支（支持阿里云 Qwen 等第三方 API）
+git checkout fix/api-compatibility
+
+# 安装依赖
+uv sync --dev
+```
+
+### 3. 配置 API
+
+创建 `.env` 文件：
+
+```bash
+cat > .env << 'EOF'
+# 阿里云百炼 API Key
+OPENAI_API_KEY=sk-你的密钥
+AUTOCHECK_OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+
+# 使用 Qwen 模型
+AUTOCHECK_CHAT_MODEL=qwen-max
+AUTOCHECK_VERIFY_MODEL=qwen-max
+
+# 推荐配置
+AUTOCHECK_TEMPERATURE=0
+AUTOCHECK_ENABLE_LLM_EXTRACTION=false
+AUTOCHECK_ENABLE_LLM_VERIFICATION=true
+AUTOCHECK_STRUCTURED_OUTPUT_METHOD=function_calling
+EOF
+```
+
+### 4. 启动 Web 界面
+
+```bash
+uv run autocheck web
+```
+
+打开浏览器访问 http://127.0.0.1:8000
+
+**Web 界面功能：**
+- 📄 上传 PDF、TXT、MD 文件
+- 🔗 输入论文链接（如 arXiv）
+- ✏️ 直接粘贴论文文本
+- ⚙️ 配置页面管理所有参数
+- 📊 实时查看核验结果和 Markdown 报告
+
+### 5. 或使用命令行
+
+```bash
+# 测试样例
+uv run autocheck run tests/fixtures/sample_draft.txt -s
+
+# 验证论文链接（限制前 3 条参考文献）
+uv run autocheck run https://arxiv.org/abs/1706.03762 -n 3
+
+# 验证本地 PDF
+uv run autocheck run your-paper.pdf
+```
+
+完成！现在可以开始核验论文引用了。
+
+### 6. 部署到公网（可选）
+
+如果你想让其他人也能访问，可以将 AutoCheck 部署到公网服务器。
+
+**查看详细部署指南**：[DEPLOYMENT.md](./DEPLOYMENT.md)
+
+**快速部署到免费云服务：**
+- [Railway.app](https://railway.app/) - 一键部署，$5/月免费额度
+- [Render.com](https://render.com/) - 完全免费，自动从 GitHub 部署
+
+---
+
 ## 项目结构
 
 ```text
@@ -31,21 +123,19 @@ autocheck/
 └── uv.lock
 ```
 
-## 环境要求
+---
+
+## 高级配置
+
+如果需要更详细的配置或使用其他 API，请参考以下说明。
+
+### 环境要求
 
 - Python 由 `uv` 管理
 - 推荐直接使用仓库内 `.env`
 - 默认命令全部使用 `uv run`
 
-## 安装
-
-在项目根目录执行：
-
-```bash
-uv sync --dev
-```
-
-## 配置
+### 完整配置说明
 
 复制环境变量模板：
 
@@ -53,38 +143,28 @@ uv sync --dev
 cp .env.example .env
 ```
 
-最小可用配置示例：
+#### 使用 OpenAI 官方 API
 
 ```bash
 cat > .env <<'EOF'
-OPENAI_API_KEY=your-key
-AUTOCHECK_OPENAI_BASE_URL=https://your-openai-compatible-endpoint/v1
-AUTOCHECK_OPENAI_WIRE_API=responses
-AUTOCHECK_OPENAI_DISABLE_RESPONSE_STORAGE=true
-AUTOCHECK_MODEL_REASONING_EFFORT=xhigh
+OPENAI_API_KEY=your-openai-key
+AUTOCHECK_CHAT_MODEL=gpt-4o
+AUTOCHECK_VERIFY_MODEL=gpt-4o
+AUTOCHECK_TEMPERATURE=0
 AUTOCHECK_ENABLE_LLM_EXTRACTION=false
 AUTOCHECK_ENABLE_LLM_VERIFICATION=true
-AUTOCHECK_CHAT_MODEL=gpt-5.4
-AUTOCHECK_VERIFY_MODEL=gpt-5.4
-AUTOCHECK_TEMPERATURE=0
-AUTOCHECK_CHUNK_SIZE=2200
-AUTOCHECK_CHUNK_OVERLAP=300
 EOF
 ```
 
-默认建议：
-
-- 默认开启 `LLM verification`
-- 默认关闭 `LLM extraction`
-- 默认模型为 `gpt-5.4`
-
-这样真实测试时不需要再额外写环境变量开关，命令会更短。
-
-如果你走 OpenAI 兼容代理，只需要改这两个值：
+#### 使用其他第三方 API
 
 ```bash
-OPENAI_API_KEY=your-proxy-key
-AUTOCHECK_OPENAI_BASE_URL=https://your-proxy.example.com/v1
+# 示例：DeepSeek
+OPENAI_API_KEY=your-key
+AUTOCHECK_OPENAI_BASE_URL=https://api.deepseek.com/v1
+AUTOCHECK_CHAT_MODEL=deepseek-chat
+AUTOCHECK_VERIFY_MODEL=deepseek-chat
+AUTOCHECK_STRUCTURED_OUTPUT_METHOD=json_mode  # 如遇问题可尝试此选项
 ```
 
 如果你走系统代理：
@@ -94,7 +174,7 @@ export HTTPS_PROXY=http://127.0.0.1:7890
 export HTTP_PROXY=http://127.0.0.1:7890
 ```
 
-## 参数列表
+### 参数列表
 
 ### 命令行参数
 
@@ -167,6 +247,12 @@ uv run autocheck run <source> [options]
 - `AUTOCHECK_CHUNK_OVERLAP`
   证据切块重叠
   默认值：`300`
+- `AUTOCHECK_STRUCTURED_OUTPUT_METHOD`
+  结构化输出方法
+  默认值：`function_calling`
+  可选值：`function_calling`（OpenAI/GPT 推荐）或 `json_mode`（第三方 API 兼容）
+
+> **注意**：`AUTOCHECK_OPENAI_WIRE_API`、`AUTOCHECK_OPENAI_DISABLE_RESPONSE_STORAGE`、`AUTOCHECK_MODEL_REASONING_EFFORT` 仅在使用 OpenAI 原生 API 时生效，第三方兼容 API 会自动忽略这些参数。
 
 ## 常用命令
 

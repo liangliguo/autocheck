@@ -57,6 +57,7 @@ class AppSettings:
     model_reasoning_effort: str
     enable_llm_extraction: bool
     enable_llm_verification: bool
+    structured_output_method: str  # "function_calling" or "json_mode"
 
     @classmethod
     def from_env(cls, project_root: Path | None = None) -> "AppSettings":
@@ -96,6 +97,7 @@ class AppSettings:
                 "AUTOCHECK_ENABLE_LLM_VERIFICATION",
                 default=True,
             ),
+            structured_output_method=os.getenv("AUTOCHECK_STRUCTURED_OUTPUT_METHOD", "function_calling"),
         )
 
     def ensure_directories(self) -> None:

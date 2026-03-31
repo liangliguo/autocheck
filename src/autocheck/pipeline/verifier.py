@@ -23,11 +23,13 @@ class ClaimCitationVerifier:
         library: PaperLibrary,
         retriever: EvidenceRetriever,
         chat_model: object | None,
+        structured_output_method: str = "function_calling",
     ) -> None:
         self.library = library
         self.retriever = retriever
         self.chat_model = chat_model
         self.loader = DocumentLoader()
+        self.structured_output_method = structured_output_method
 
     def verify(
         self,
@@ -136,7 +138,7 @@ class ClaimCitationVerifier:
         )
         chain = prompt | self.chat_model.with_structured_output(
             LLMVerificationDecision,
-            method="function_calling",
+            method=self.structured_output_method,
         )
         rendered_evidence = "\n\n".join(
             f"[{chunk.chunk_id}] score={chunk.score:.3f}\n{chunk.text}" for chunk in evidence
