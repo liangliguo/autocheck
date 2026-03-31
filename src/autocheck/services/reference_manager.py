@@ -9,6 +9,7 @@ from autocheck.resolvers.arxiv import ArxivResolver
 from autocheck.resolvers.crossref import CrossRefResolver
 from autocheck.resolvers.openalex import OpenAlexResolver
 from autocheck.resolvers.scihub import SciHubResolver
+from autocheck.resolvers.title_downloader import TitleDownloader
 from autocheck.schemas.models import LocalPaperRecord, ReferenceEntry, ResolverMatch
 
 
@@ -18,6 +19,8 @@ class ReferenceManager:
         # Order: OpenAlex (open access), arXiv, CrossRef (metadata), Sci-Hub (last resort)
         self.metadata_resolvers = [OpenAlexResolver(), ArxivResolver(), CrossRefResolver()]
         self.download_resolvers = [SciHubResolver()]
+        # TitleDownloader for fallback: arXiv search + CrossRef->Sci-Hub
+        self.title_downloader = TitleDownloader()
 
     def prepare_references(
         self,
@@ -121,6 +124,15 @@ class ReferenceManager:
                         return self.library.save_download(reference, final_match, pdf_bytes)
                     except Exception as exc:
                         last_error = f"{resolver.name}: {exc}"
+
+        # Phase 3: Try TitleDownloader as final fallback (arXiv search + CrossRef->Sci-Hub)
+        if reference.title:
+            try:
+                pdf_bytes, match = self.title_downloader.download_reference(reference)
+                if pdf_bytes and match:
+                    return self.library.save_download(reference, match, pdf_bytes)
+            except Exception as exc:
+                last_error = f"title_downloader: {exc}"
 
         return self.library.mark_failure(reference, "not_found", last_error)
 
