@@ -532,3 +532,80 @@ def test_verifier_uses_function_calling_for_structured_output(tmp_path) -> None:
 
     assert chat_model.calls[0][0] is LLMVerificationDecision
     assert chat_model.calls[0][1]["method"] == "function_calling"
+
+
+def test_verifier_uses_metadata_only_llm_when_reference_download_failed(tmp_path) -> None:
+    settings = AppSettings.from_env(project_root=tmp_path)
+    library = PaperLibrary(tmp_path / "downloads", tmp_path / "processed")
+    library.downloads_dir.mkdir(parents=True, exist_ok=True)
+    library.processed_dir.mkdir(parents=True, exist_ok=True)
+    reference = ReferenceEntry(
+        ref_id="[1]",
+        raw_text="[1] Attention Is All You Need. 2017.",
+        title="Attention Is All You Need",
+        authors=["Ashish Vaswani"],
+        year=2017,
+    )
+    library.mark_failure(reference, "not_found", "No PDF source found.")
+
+    class MetadataOnlyChatModel:
+        def with_structured_output(self, _schema, **_kwargs):
+            return RunnableLambda(
+                lambda _input: LLMVerificationDecision(
+                    verdict=VerificationLabel.PARTIAL_SUPPORT,
+                    confidence=0.62,
+                    reasoning="The reference title aligns with the cited transformer claim.",
+                    used_chunk_ids=[],
+                    supported_points=["The title indicates the paper is about transformer attention."],
+                    unsupported_points=[],
+                    concerns=[],
+                )
+            )
+
+    verifier = ClaimCitationVerifier(
+        library=library,
+        retriever=EvidenceRetriever(settings),
+        chat_model=MetadataOnlyChatModel(),
+    )
+
+    assessment = verifier.verify(
+        ClaimRecord(
+            claim_id="claim-1",
+            text="Transformers use attention mechanisms [1].",
+            citation_markers=["[1]"],
+        ),
+        "[1]",
+        reference,
+    )
+
+    assert assessment.verdict == VerificationLabel.PARTIAL_SUPPORT
+    assert assessment.evidence == []
+    assert "metadata only" in assessment.concerns[-1].lower()
+
+
+def test_verifier_metadata_only_without_llm_returns_not_found(tmp_path) -> None:
+    settings = AppSettings.from_env(project_root=tmp_path)
+    library = PaperLibrary(tmp_path / "downloads", tmp_path / "processed")
+    library.downloads_dir.mkdir(parents=True, exist_ok=True)
+    library.processed_dir.mkdir(parents=True, exist_ok=True)
+    reference = ReferenceEntry(
+        ref_id="[1]",
+        raw_text="[1] Unknown reference.",
+        title="Unknown reference",
+    )
+    library.mark_failure(reference, "not_found", "No PDF source found.")
+
+    verifier = ClaimCitationVerifier(
+        library=library,
+        retriever=EvidenceRetriever(settings),
+        chat_model=None,
+    )
+
+    assessment = verifier.verify(
+        ClaimRecord(claim_id="claim-1", text="A claim [1].", citation_markers=["[1]"]),
+        "[1]",
+        reference,
+    )
+
+    assert assessment.verdict == VerificationLabel.NOT_FOUND
+    assert "metadata-only verification" in assessment.reasoning

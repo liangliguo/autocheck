@@ -4,11 +4,17 @@ from pathlib import Path
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from autocheck.prompts.templates import VERIFICATION_HUMAN_TEMPLATE, VERIFICATION_SYSTEM_PROMPT
+from autocheck.prompts.templates import (
+    METADATA_ONLY_VERIFICATION_HUMAN_TEMPLATE,
+    METADATA_ONLY_VERIFICATION_SYSTEM_PROMPT,
+    VERIFICATION_HUMAN_TEMPLATE,
+    VERIFICATION_SYSTEM_PROMPT,
+)
 from autocheck.repository.library import PaperLibrary
 from autocheck.schemas.models import (
     ClaimCitationAssessment,
     ClaimRecord,
+    LocalPaperRecord,
     LLMVerificationDecision,
     ReferenceEntry,
     VerificationLabel,
@@ -49,15 +55,7 @@ class ClaimCitationVerifier:
 
         record = self.library.get(reference)
         if record is None or (not record.pdf_path and not record.text_path):
-            return ClaimCitationAssessment(
-                claim_id=claim.claim_id,
-                claim_text=claim.text,
-                citation_marker=citation_marker,
-                reference=reference,
-                verdict=VerificationLabel.NOT_FOUND,
-                confidence=0.0,
-                reasoning="The cited source could not be downloaded or found in the local library.",
-            )
+            return self._verify_with_metadata_only(claim, citation_marker, reference, record)
 
         paper_text = self._load_paper_text(reference, record.pdf_path, record.text_path)
         if not paper_text.strip():
@@ -101,6 +99,52 @@ class ClaimCitationVerifier:
             supported_points=decision.supported_points,
             unsupported_points=decision.unsupported_points,
             concerns=decision.concerns,
+        )
+
+    def _verify_with_metadata_only(
+        self,
+        claim: ClaimRecord,
+        citation_marker: str,
+        reference: ReferenceEntry,
+        record: LocalPaperRecord | None,
+    ) -> ClaimCitationAssessment:
+        if self.chat_model is None:
+            return ClaimCitationAssessment(
+                claim_id=claim.claim_id,
+                claim_text=claim.text,
+                citation_marker=citation_marker,
+                reference=reference,
+                verdict=VerificationLabel.NOT_FOUND,
+                confidence=0.0,
+                reasoning=(
+                    "The cited source could not be downloaded or found in the local library, "
+                    "and no chat model was configured for metadata-only verification."
+                ),
+                concerns=[
+                    "Verification stopped at metadata-only fallback because no chat model was configured."
+                ],
+            )
+
+        decision = self._verify_with_llm_metadata_only(claim, citation_marker, reference, record)
+        verdict = decision.verdict
+        if verdict == VerificationLabel.STRONG_SUPPORT:
+            verdict = VerificationLabel.PARTIAL_SUPPORT
+
+        concerns = list(decision.concerns)
+        concerns.append("Assessment used bibliography metadata only because the cited source was unavailable.")
+
+        return ClaimCitationAssessment(
+            claim_id=claim.claim_id,
+            claim_text=claim.text,
+            citation_marker=citation_marker,
+            reference=reference,
+            verdict=verdict,
+            confidence=decision.confidence,
+            reasoning=decision.reasoning,
+            evidence=[],
+            supported_points=decision.supported_points,
+            unsupported_points=decision.unsupported_points,
+            concerns=concerns,
         )
 
     def _load_paper_text(
@@ -165,6 +209,58 @@ class ClaimCitationVerifier:
                     "LLM verification failed during structured parsing and fell back to lexical "
                     f"scoring: {error_message or type(exc).__name__}."
                 ),
+            )
+
+    def _verify_with_llm_metadata_only(
+        self,
+        claim: ClaimRecord,
+        citation_marker: str,
+        reference: ReferenceEntry,
+        record: LocalPaperRecord | None,
+    ) -> LLMVerificationDecision:
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", METADATA_ONLY_VERIFICATION_SYSTEM_PROMPT),
+                ("human", METADATA_ONLY_VERIFICATION_HUMAN_TEMPLATE),
+            ]
+        )
+        chain = prompt | self.chat_model.with_structured_output(
+            LLMVerificationDecision,
+            method=self.structured_output_method,
+        )
+        try:
+            return chain.invoke(
+                {
+                    "claim_id": claim.claim_id,
+                    "claim_text": claim.text,
+                    "citation_marker": citation_marker,
+                    "ref_id": reference.ref_id,
+                    "title": reference.title or "",
+                    "authors": ", ".join(reference.authors),
+                    "year": reference.year or "",
+                    "doi": reference.doi or "",
+                    "arxiv_id": reference.arxiv_id or "",
+                    "raw_reference": reference.raw_text,
+                    "status": record.status if record else "missing",
+                    "note": record.note if record and record.note else "",
+                }
+            )
+        except Exception as exc:
+            error_message = " ".join(str(exc).split())[:240]
+            return LLMVerificationDecision(
+                verdict=VerificationLabel.NOT_FOUND,
+                confidence=0.0,
+                reasoning=(
+                    "Metadata-only verification failed because the cited source was unavailable and "
+                    "the LLM response could not be parsed."
+                ),
+                used_chunk_ids=[],
+                supported_points=[],
+                unsupported_points=[],
+                concerns=[
+                    "LLM metadata-only verification failed during structured parsing: "
+                    f"{error_message or type(exc).__name__}."
+                ],
             )
 
     def _fallback_decision(
