@@ -580,6 +580,7 @@ def test_verifier_uses_metadata_only_llm_when_reference_download_failed(tmp_path
 
     assert assessment.verdict == VerificationLabel.PARTIAL_SUPPORT
     assert assessment.evidence == []
+    assert assessment.confidence == 0.5
     assert "metadata only" in assessment.concerns[-1].lower()
 
 
@@ -609,3 +610,70 @@ def test_verifier_metadata_only_without_llm_returns_not_found(tmp_path) -> None:
 
     assert assessment.verdict == VerificationLabel.NOT_FOUND
     assert "metadata-only verification" in assessment.reasoning
+
+
+def test_verifier_does_not_use_metadata_only_when_download_was_skipped(tmp_path) -> None:
+    settings = AppSettings.from_env(project_root=tmp_path)
+    library = PaperLibrary(tmp_path / "downloads", tmp_path / "processed")
+    library.downloads_dir.mkdir(parents=True, exist_ok=True)
+    library.processed_dir.mkdir(parents=True, exist_ok=True)
+    reference = ReferenceEntry(
+        ref_id="[1]",
+        raw_text="[1] Attention Is All You Need. 2017.",
+        title="Attention Is All You Need",
+    )
+    library.ensure_placeholder(
+        reference,
+        status="skipped",
+        note="Download skipped by user option.",
+    )
+
+    class UnexpectedChatModel:
+        def with_structured_output(self, _schema, **_kwargs):
+            raise AssertionError("metadata-only fallback should not run for skipped downloads")
+
+    verifier = ClaimCitationVerifier(
+        library=library,
+        retriever=EvidenceRetriever(settings),
+        chat_model=UnexpectedChatModel(),
+    )
+
+    assessment = verifier.verify(
+        ClaimRecord(claim_id="claim-1", text="A claim [1].", citation_markers=["[1]"]),
+        "[1]",
+        reference,
+    )
+
+    assert assessment.verdict == VerificationLabel.NOT_FOUND
+    assert "skipped by user option" in assessment.reasoning
+
+
+def test_pipeline_skip_download_keeps_not_found_even_with_llm(tmp_path, monkeypatch) -> None:
+    project_root = tmp_path
+    source_path = project_root / "draft.txt"
+    source_path.write_text(
+        (
+            "Transformers use attention mechanisms [1].\n\n"
+            "References\n"
+            "[1] Vaswani, A. Attention Is All You Need. 2017.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class FailingIfUsedChatModel:
+        def with_structured_output(self, _schema, **_kwargs):
+            raise AssertionError("LLM should not be used when skip_download=True")
+
+    monkeypatch.setattr(
+        "autocheck.pipeline.orchestrator.build_chat_model",
+        lambda *_args, **_kwargs: FailingIfUsedChatModel(),
+    )
+
+    settings = AppSettings.from_env(project_root=project_root)
+    pipeline = AutoCheckPipeline(settings)
+    report, _paths = pipeline.run(source_path=source_path, skip_download=True)
+
+    assert report.assessments[0].verdict == VerificationLabel.NOT_FOUND
+    assert "skipped by user option" in report.assessments[0].reasoning

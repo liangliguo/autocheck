@@ -108,6 +108,18 @@ class ClaimCitationVerifier:
         reference: ReferenceEntry,
         record: LocalPaperRecord | None,
     ) -> ClaimCitationAssessment:
+        if record is not None and record.status == "skipped":
+            return ClaimCitationAssessment(
+                claim_id=claim.claim_id,
+                claim_text=claim.text,
+                citation_marker=citation_marker,
+                reference=reference,
+                verdict=VerificationLabel.NOT_FOUND,
+                confidence=0.0,
+                reasoning="Reference download was skipped by user option, so no source verification was attempted.",
+                concerns=["Metadata-only verification is disabled when downloads are explicitly skipped."],
+            )
+
         if self.chat_model is None:
             return ClaimCitationAssessment(
                 claim_id=claim.claim_id,
@@ -132,6 +144,7 @@ class ClaimCitationVerifier:
 
         concerns = list(decision.concerns)
         concerns.append("Assessment used bibliography metadata only because the cited source was unavailable.")
+        confidence = min(decision.confidence, 0.5)
 
         return ClaimCitationAssessment(
             claim_id=claim.claim_id,
@@ -139,7 +152,7 @@ class ClaimCitationVerifier:
             citation_marker=citation_marker,
             reference=reference,
             verdict=verdict,
-            confidence=decision.confidence,
+            confidence=confidence,
             reasoning=decision.reasoning,
             evidence=[],
             supported_points=decision.supported_points,
