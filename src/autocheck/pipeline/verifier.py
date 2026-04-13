@@ -130,10 +130,10 @@ class ClaimCitationVerifier:
                 confidence=0.0,
                 reasoning=(
                     "The cited source could not be downloaded or found in the local library, "
-                    "and no chat model was configured for metadata-only verification."
+                    "and no chat model was configured for bibliography-based citation matching."
                 ),
                 concerns=[
-                    "Verification stopped at metadata-only fallback because no chat model was configured."
+                    "Verification stopped at bibliography-based citation matching because no chat model was configured."
                 ],
             )
 
@@ -143,7 +143,9 @@ class ClaimCitationVerifier:
             verdict = VerificationLabel.PARTIAL_SUPPORT
 
         concerns = list(decision.concerns)
-        concerns.append("Assessment used bibliography metadata only because the cited source was unavailable.")
+        concerns.append(
+            "Assessment used bibliography-based citation matching because the cited source was unavailable."
+        )
         confidence = min(decision.confidence, 0.5)
 
         return ClaimCitationAssessment(
@@ -264,14 +266,14 @@ class ClaimCitationVerifier:
                 verdict=VerificationLabel.NOT_FOUND,
                 confidence=0.0,
                 reasoning=(
-                    "Metadata-only verification failed because the cited source was unavailable and "
-                    "the LLM response could not be parsed."
+                    "Bibliography-based citation matching failed because the cited source was unavailable "
+                    "and the LLM response could not be parsed."
                 ),
                 used_chunk_ids=[],
                 supported_points=[],
                 unsupported_points=[],
                 concerns=[
-                    "LLM metadata-only verification failed during structured parsing: "
+                    "LLM bibliography-based citation matching failed during structured parsing: "
                     f"{error_message or type(exc).__name__}."
                 ],
             )
