@@ -612,6 +612,40 @@ def test_verifier_metadata_only_without_llm_returns_not_found(tmp_path) -> None:
     assert "metadata-only verification" in assessment.reasoning
 
 
+def test_verifier_returns_not_found_when_pdf_text_extraction_raises(tmp_path) -> None:
+    settings = AppSettings.from_env(project_root=tmp_path)
+    library = PaperLibrary(tmp_path / "downloads", tmp_path / "processed")
+    library.downloads_dir.mkdir(parents=True, exist_ok=True)
+    library.processed_dir.mkdir(parents=True, exist_ok=True)
+    reference = ReferenceEntry(
+        ref_id="[1]",
+        raw_text="[1] Broken PDF.",
+        title="Broken PDF",
+    )
+    pdf_path = library.downloads_dir / "broken.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4 broken")
+    record = library.ensure_placeholder(reference, status="downloaded")
+    record.pdf_path = str(pdf_path)
+    library._save_record(record)
+
+    verifier = ClaimCitationVerifier(
+        library=library,
+        retriever=EvidenceRetriever(settings),
+        chat_model=None,
+    )
+    verifier.loader.load_text = lambda _path: (_ for _ in ()).throw(RuntimeError("bad xref"))  # type: ignore[method-assign]
+
+    assessment = verifier.verify(
+        ClaimRecord(claim_id="claim-1", text="A claim [1].", citation_markers=["[1]"]),
+        "[1]",
+        reference,
+    )
+
+    assert assessment.verdict == VerificationLabel.NOT_FOUND
+    assert "text extraction failed" in assessment.reasoning.lower()
+    assert "bad xref" in assessment.reasoning.lower()
+
+
 def test_verifier_does_not_use_metadata_only_when_download_was_skipped(tmp_path) -> None:
     settings = AppSettings.from_env(project_root=tmp_path)
     library = PaperLibrary(tmp_path / "downloads", tmp_path / "processed")

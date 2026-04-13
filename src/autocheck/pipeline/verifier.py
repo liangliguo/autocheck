@@ -57,7 +57,22 @@ class ClaimCitationVerifier:
         if record is None or (not record.pdf_path and not record.text_path):
             return self._verify_with_metadata_only(claim, citation_marker, reference, record)
 
-        paper_text = self._load_paper_text(reference, record.pdf_path, record.text_path)
+        try:
+            paper_text = self._load_paper_text(reference, record.pdf_path, record.text_path)
+        except Exception as exc:
+            error_message = " ".join(str(exc).split())[:240]
+            return ClaimCitationAssessment(
+                claim_id=claim.claim_id,
+                claim_text=claim.text,
+                citation_marker=citation_marker,
+                reference=reference,
+                verdict=VerificationLabel.NOT_FOUND,
+                confidence=0.0,
+                reasoning=(
+                    "The cited PDF was found, but text extraction failed: "
+                    f"{error_message or type(exc).__name__}."
+                ),
+            )
         if not paper_text.strip():
             return ClaimCitationAssessment(
                 claim_id=claim.claim_id,
