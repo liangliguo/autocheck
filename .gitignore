@@ -62,6 +62,7 @@ logs/
 .cache/
 
 # Documentation and demo files
+.github/
 .github/copilot-instructions.md
 demo_citation_improvement.py
 DEPLOYMENT.md
