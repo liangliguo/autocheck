@@ -37,6 +37,8 @@
 
 ### 2. 安装项目
 
+要求：Python 3.11 或更高版本。
+
 ```bash
 git clone https://github.com/liangliguo/autocheck.git
 cd autocheck

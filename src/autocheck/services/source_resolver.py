@@ -75,8 +75,13 @@ def download_remote_source_to_workspace(
     response = requests.get(normalized_url, timeout=timeout)
     response.raise_for_status()
 
-    suffix = _resolve_source_suffix(response.url or normalized_url, response.headers.get("content-type", ""))
-    stem = slugify(source_stem(response.url or normalized_url), fallback=workspace.name or "input")
+    suffix = _resolve_source_suffix(
+        response.url or normalized_url,
+        response.headers.get("content-type", ""),
+    )
+    # Keep a stable local filename based on the original user input instead of
+    # a redirected CDN/download URL like `download.pdf`.
+    stem = slugify(source_stem(url), fallback=workspace.name or "input")
     target_path = workspace.inputs_dir / f"{stem}{suffix}"
     target_path.write_bytes(response.content)
     return target_path

@@ -21,7 +21,7 @@ Tests live in `tests/`. Use `tests/fixtures/` for sample inputs. Generated runti
 - `uv run python tests/check_title_downloads.py testpaper.md`: bulk-check DOI lookup and download results for one-title-per-line inputs
 
 ## Coding Style & Naming Conventions
-Target Python 3.9+ with 4-space indentation. Follow existing patterns:
+Target Python 3.11+ with 4-space indentation. Follow existing patterns:
 - `snake_case` for functions, variables, and modules
 - `PascalCase` for classes and Pydantic models
 - explicit type hints on public functions
@@ -40,7 +40,7 @@ Use `pytest`. Name files `tests/test_<feature>.py` and test functions `test_<beh
 
 For title-based download checks, prefer `tests/check_title_downloads.py` over ad hoc one-off shell snippets when you need repeatable local verification.
 
-If `tests/test_pipeline_smoke.py` fails during collection under Python 3.10 because of `datetime.UTC`, treat that as an environment compatibility issue and note it explicitly instead of attributing it to unrelated resolver or prompt changes.
+If collection or startup fails under Python 3.10 because of `datetime.UTC`, treat that as an environment compatibility issue and note it explicitly instead of attributing it to unrelated resolver or prompt changes.
 
 ## Commit & Pull Request Guidelines
 Recent history favors short imperative commits, often with prefixes like `feat:` and `chore:`. Use that style when possible, for example: `feat: add metadata-only citation fallback`.

@@ -69,6 +69,41 @@ def test_download_remote_source_to_workspace_uses_response_url_and_suffix(monkey
     assert path.exists()
     assert path.suffix == ".pdf"
     assert path.read_bytes() == b"%PDF-1.4 demo"
+    assert path.name == "paper.pdf"
+
+
+def test_download_remote_source_to_workspace_keeps_name_from_input_url(monkeypatch, tmp_path) -> None:
+    workspace = PaperWorkspace(
+        name="attention-is-all-you-need",
+        root_dir=tmp_path / "paper",
+        inputs_dir=tmp_path / "paper" / "inputs",
+        downloads_dir=tmp_path / "paper" / "downloads",
+        processed_dir=tmp_path / "paper" / "processed",
+        reports_dir=tmp_path / "paper" / "reports",
+    )
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"content-type": "application/pdf"}
+        url = "https://cdn.example.com/files/download.pdf?token=demo"
+        content = b"%PDF-1.4 demo"
+
+        def raise_for_status(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "autocheck.services.source_resolver.requests.get",
+        lambda *_args, **_kwargs: FakeResponse(),
+    )
+
+    path = download_remote_source_to_workspace(
+        "https://example.com/papers/attention-is-all-you-need",
+        workspace,
+        timeout=5,
+    )
+
+    assert path.exists()
+    assert path.name == "attention-is-all-you-need.pdf"
 
 
 def test_resolve_source_input_returns_local_path_unchanged(tmp_path) -> None:
