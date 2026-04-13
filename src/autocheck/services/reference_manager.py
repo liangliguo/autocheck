@@ -8,6 +8,7 @@ from autocheck.repository.library import PaperLibrary
 from autocheck.resolvers.arxiv import ArxivResolver
 from autocheck.resolvers.crossref import CrossRefResolver
 from autocheck.resolvers.openalex import OpenAlexResolver
+from autocheck.resolvers.scihub_common import download_pdf_bytes
 from autocheck.resolvers.scihub import SciHubResolver
 from autocheck.resolvers.title_downloader import TitleDownloader
 from autocheck.schemas.models import LocalPaperRecord, ReferenceEntry, ResolverMatch
@@ -137,10 +138,20 @@ class ReferenceManager:
         return self.library.mark_failure(reference, "not_found", last_error)
 
     def _download_pdf(self, match: ResolverMatch) -> bytes:
+        if match.resolver_name == "scihub" and match.pdf_url:
+            pdf_bytes = download_pdf_bytes(
+                match.pdf_url,
+                timeout=120,
+                referer=match.landing_page_url,
+            )
+            if pdf_bytes:
+                return pdf_bytes
+            raise ValueError("Downloaded content is not a PDF.")
+
         response = requests.get(match.pdf_url, timeout=60)
         response.raise_for_status()
         pdf_bytes = response.content
-        if not pdf_bytes.startswith(b"%PDF"):
+        if not pdf_bytes.lstrip().startswith(b"%PDF"):
             raise ValueError("Downloaded content is not a PDF.")
         return pdf_bytes
 

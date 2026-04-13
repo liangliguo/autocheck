@@ -6,8 +6,12 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
+from autocheck.repository.library import PaperLibrary
+from autocheck.resolvers.scihub import SciHubResolver
 from autocheck.schemas.models import ReferenceEntry, ResolverMatch
+from autocheck.services.reference_manager import ReferenceManager
 from autocheck.resolvers.title_downloader import (
     TitleDownloader,
     curl_get,
@@ -74,6 +78,16 @@ class TestExtractScihubPdfUrl:
         url = extract_scihub_pdf_url(html, "https://sci-hub.se")
         assert url is None
 
+    def test_extracts_from_button_without_pdf_suffix(self):
+        """Sci-Hub mirrors sometimes use download paths without a .pdf suffix."""
+        html = b"""
+        <html>
+            <button onclick="location.href='\\/downloads\\/2024-01-01\\/paper'">save</button>
+        </html>
+        """
+        url = extract_scihub_pdf_url(html, "https://sci-hub.se")
+        assert url == "https://sci-hub.se/downloads/2024-01-01/paper"
+
 
 class TestDownloadFromScihub:
     """Tests for download_from_scihub function."""
@@ -82,7 +96,7 @@ class TestDownloadFromScihub:
         """Test successful PDF download from Sci-Hub."""
         call_count = 0
 
-        def mock_curl_get(url, timeout=60):
+        def mock_curl_get(url, timeout=60, referer=None):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -93,6 +107,10 @@ class TestDownloadFromScihub:
 
         monkeypatch.setattr(
             "autocheck.resolvers.title_downloader.curl_get",
+            mock_curl_get,
+        )
+        monkeypatch.setattr(
+            "autocheck.resolvers.scihub_common.curl_get",
             mock_curl_get,
         )
 
@@ -110,9 +128,46 @@ class TestDownloadFromScihub:
             "autocheck.resolvers.title_downloader.curl_get",
             mock_curl_get,
         )
+        monkeypatch.setattr(
+            "autocheck.resolvers.scihub_common.curl_get",
+            mock_curl_get,
+        )
 
         pdf_bytes = download_from_scihub("10.1234/test", mirrors=["https://sci-hub.se"])
         assert pdf_bytes is None
+
+    def test_retries_next_mirror_when_first_pdf_is_invalid(self, monkeypatch):
+        """A mirror may return an HTML challenge instead of a PDF; the downloader should continue."""
+        calls = []
+
+        def mock_curl_get(url, timeout=60, referer=None):
+            calls.append((url, referer))
+            if "sci-hub.se/10.1234/test" in url:
+                return 200, b'<iframe id="pdf" src="/downloads/blocked"></iframe>'
+            if url.endswith("/downloads/blocked"):
+                return 200, b"<html>challenge</html>"
+            if "sci-hub.st/10.1234/test" in url:
+                return 200, b'<embed type="application/pdf" src="//cdn.sci-hub.st/paper.pdf">'
+            if url == "https://cdn.sci-hub.st/paper.pdf":
+                return 200, b"%PDF-1.4 valid pdf"
+            return 404, b""
+
+        monkeypatch.setattr(
+            "autocheck.resolvers.title_downloader.curl_get",
+            mock_curl_get,
+        )
+        monkeypatch.setattr(
+            "autocheck.resolvers.scihub_common.curl_get",
+            mock_curl_get,
+        )
+
+        pdf_bytes = download_from_scihub(
+            "https://doi.org/10.1234/test",
+            mirrors=["https://sci-hub.se", "https://sci-hub.st"],
+        )
+
+        assert pdf_bytes == b"%PDF-1.4 valid pdf"
+        assert ("https://cdn.sci-hub.st/paper.pdf", "https://sci-hub.st/10.1234/test") in calls
 
 
 class TestTitleDownloader:
@@ -223,7 +278,7 @@ class TestTitleDownloader:
                 score=0.9,
             )
 
-        def mock_curl_get(url, timeout=60):
+        def mock_curl_get(url, timeout=60, referer=None):
             return 200, b"%PDF-1.4 test content"
 
         monkeypatch.setattr(
@@ -232,6 +287,10 @@ class TestTitleDownloader:
         )
         monkeypatch.setattr(
             "autocheck.resolvers.title_downloader.curl_get",
+            mock_curl_get,
+        )
+        monkeypatch.setattr(
+            "autocheck.resolvers.scihub_common.curl_get",
             mock_curl_get,
         )
 
@@ -255,3 +314,79 @@ class TestTitleDownloader:
         custom_mirrors = ["https://custom.mirror.com"]
         downloader = TitleDownloader(scihub_mirrors=custom_mirrors)
         assert downloader.scihub_mirrors == custom_mirrors
+
+
+class TestSciHubResolver:
+    def test_locate_extracts_pdf_url_without_pdf_suffix(self, monkeypatch):
+        def mock_curl_get(url, timeout=60, referer=None):
+            return 200, b'<iframe id="pdf" src="/downloads/2024-01-01/paper"></iframe>'
+
+        monkeypatch.setattr(
+            "autocheck.resolvers.scihub.curl_get",
+            mock_curl_get,
+        )
+
+        resolver = SciHubResolver()
+        match = resolver.locate(
+            ReferenceEntry(
+                ref_id="[1]",
+                raw_text="[1] ref",
+                title="Paper",
+                doi="doi:10.1234/test",
+            )
+        )
+
+        assert match is not None
+        assert match.pdf_url == "https://sci-hub.se/downloads/2024-01-01/paper"
+        assert match.external_id == "doi:10.1234/test"
+
+
+class TestReferenceManagerSciHubDownload:
+    def test_download_pdf_uses_curl_for_scihub_with_referer(self, monkeypatch, tmp_path):
+        calls = []
+
+        def mock_download_pdf_bytes(url, timeout=120, referer=None):
+            calls.append((url, timeout, referer))
+            return b"%PDF-1.4 scihub"
+
+        monkeypatch.setattr(
+            "autocheck.services.reference_manager.download_pdf_bytes",
+            mock_download_pdf_bytes,
+        )
+
+        library = PaperLibrary(tmp_path / "downloads", tmp_path / "processed")
+        manager = ReferenceManager(library)
+        match = ResolverMatch(
+            resolver_name="scihub",
+            title="Paper",
+            pdf_url="https://cdn.sci-hub.se/download",
+            landing_page_url="https://sci-hub.se/10.1234/test",
+            external_id="doi:10.1234/test",
+            score=1.0,
+        )
+
+        pdf_bytes = manager._download_pdf(match)
+
+        assert pdf_bytes == b"%PDF-1.4 scihub"
+        assert calls == [("https://cdn.sci-hub.se/download", 120, "https://sci-hub.se/10.1234/test")]
+
+    def test_download_pdf_rejects_non_pdf_for_non_scihub(self, monkeypatch, tmp_path):
+        class MockResponse:
+            content = b"<html>no pdf</html>"
+
+            def raise_for_status(self):
+                return None
+
+        monkeypatch.setattr(requests, "get", lambda *_args, **_kwargs: MockResponse())
+
+        library = PaperLibrary(tmp_path / "downloads", tmp_path / "processed")
+        manager = ReferenceManager(library)
+        match = ResolverMatch(
+            resolver_name="arxiv",
+            title="Paper",
+            pdf_url="https://example.com/paper.pdf",
+            score=1.0,
+        )
+
+        with pytest.raises(ValueError, match="not a PDF"):
+            manager._download_pdf(match)
