@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import subprocess
 from typing import Optional
+from urllib.parse import quote
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -19,6 +20,18 @@ SCIHUB_MIRRORS = [
     "https://sci-hub.ru",
     "https://sci-hub.ren",
 ]
+
+SCIHUB_UNAVAILABLE_PATTERNS = (
+    "article not found",
+    "requested document is unavailable",
+    "document wasn't found",
+    "unfortunately, sci-hub does not have the requested document",
+    "unfortunately sci-hub doesn't have the requested document",
+    "sci-hub does not contain this paper",
+    "captcha",
+    "cf-browser-verification",
+    "just a moment...",
+)
 
 
 def normalize_doi(doi: str | None) -> Optional[str]:
@@ -63,9 +76,19 @@ def curl_get(url: str, timeout: int = 60, referer: str | None = None) -> tuple[i
     command = [
         "curl",
         "-sL",
+        "--compressed",
+        "--retry",
+        "2",
+        "--retry-all-errors",
         "-A",
         USER_AGENT,
+        "-H",
+        "Accept: text/html,application/pdf,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "-H",
+        "Accept-Language: en-US,en;q=0.9",
         "--connect-timeout",
+        str(timeout),
+        "--max-time",
         str(timeout),
         "-w",
         "\n%{http_code}",
@@ -127,7 +150,16 @@ def extract_scihub_pdf_url(html: bytes, mirror: str) -> Optional[str]:
 
     candidates: list[str] = []
 
+    prioritized_candidates: list[str] = []
+
     if soup is not None:
+        pdf_frame = soup.find(id="pdf")
+        if pdf_frame is not None:
+            for attr in ("src", "data", "href"):
+                value = pdf_frame.get(attr)
+                if value:
+                    prioritized_candidates.append(value)
+
         selectors = (
             ("embed", "src", {"type": "application/pdf"}),
             ("iframe", "src", {"id": "pdf"}),
@@ -152,6 +184,11 @@ def extract_scihub_pdf_url(html: bytes, mirror: str) -> Optional[str]:
     ):
         candidates.extend(match.group(1) for match in re.finditer(pattern, text, re.IGNORECASE))
 
+    for candidate in prioritized_candidates:
+        normalized = normalize_pdf_url(candidate, base_url)
+        if normalized:
+            return normalized
+
     for candidate in candidates:
         match = re.search(r"location\.href\s*=\s*['\"]([^'\"]+)['\"]", candidate)
         raw_url = match.group(1) if match else candidate
@@ -166,6 +203,12 @@ def extract_scihub_pdf_url(html: bytes, mirror: str) -> Optional[str]:
     return None
 
 
+def page_indicates_unavailable(html: bytes) -> bool:
+    """Detect common Sci-Hub unavailable/challenge pages before attempting PDF extraction."""
+    text = html.decode("utf-8", errors="ignore").lower()
+    return any(pattern in text for pattern in SCIHUB_UNAVAILABLE_PATTERNS)
+
+
 def is_pdf_bytes(content: bytes) -> bool:
     """Check whether downloaded bytes look like a PDF payload."""
     return bool(content) and content.lstrip().startswith(b"%PDF")
@@ -177,3 +220,22 @@ def download_pdf_bytes(url: str, timeout: int = 120, referer: str | None = None)
     if status != 200 or not is_pdf_bytes(content):
         return None
     return content
+
+
+def iter_doi_candidates(doi: str) -> list[str]:
+    """Return DOI path variants that improve compatibility across Sci-Hub mirrors."""
+    normalized = normalize_doi(doi)
+    if not normalized:
+        return []
+
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for candidate in (
+        normalized,
+        quote(normalized, safe=""),
+        quote(normalized, safe="/"),
+    ):
+        if candidate not in seen:
+            seen.add(candidate)
+            candidates.append(candidate)
+    return candidates

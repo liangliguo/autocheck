@@ -6,7 +6,8 @@ from autocheck.resolvers.scihub_common import (
     build_scihub_mirror_list,
     curl_get,
     extract_scihub_pdf_url,
-    normalize_doi,
+    iter_doi_candidates,
+    page_indicates_unavailable,
 )
 from autocheck.schemas.models import ReferenceEntry, ResolverMatch
 
@@ -36,23 +37,25 @@ class SciHubResolver:
         if not reference.doi:
             return None
         
-        doi = normalize_doi(reference.doi)
-        if not doi:
+        doi_candidates = iter_doi_candidates(reference.doi)
+        if not doi_candidates:
             return None
         
+        canonical_doi = doi_candidates[0]
         for mirror in self.mirrors:
-            pdf_url = self._try_mirror(mirror, doi)
-            if pdf_url:
-                return ResolverMatch(
-                    resolver_name=self.name,
-                    title=reference.title,
-                    authors=reference.authors or [],
-                    year=reference.year,
-                    pdf_url=pdf_url,
-                    landing_page_url=f"{mirror}/{doi}",
-                    external_id=f"doi:{doi}",
-                    score=1.0,  # DOI is exact match
-                )
+            for doi_candidate in doi_candidates:
+                pdf_url = self._try_mirror(mirror, doi_candidate)
+                if pdf_url:
+                    return ResolverMatch(
+                        resolver_name=self.name,
+                        title=reference.title,
+                        authors=reference.authors or [],
+                        year=reference.year,
+                        pdf_url=pdf_url,
+                        landing_page_url=f"{mirror}/{doi_candidate}",
+                        external_id=f"doi:{canonical_doi}",
+                        score=1.0,  # DOI is exact match
+                    )
         
         return None
     
@@ -60,7 +63,7 @@ class SciHubResolver:
         """Try to get PDF URL from a specific Sci-Hub mirror."""
         try:
             status_code, content = curl_get(f"{mirror}/{doi}")
-            if status_code != 200 or not content:
+            if status_code != 200 or not content or page_indicates_unavailable(content):
                 return None
 
             return extract_scihub_pdf_url(content, mirror)

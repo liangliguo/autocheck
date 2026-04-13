@@ -88,6 +88,16 @@ class TestExtractScihubPdfUrl:
         url = extract_scihub_pdf_url(html, "https://sci-hub.se")
         assert url == "https://sci-hub.se/downloads/2024-01-01/paper"
 
+    def test_prefers_pdf_frame_even_without_pdf_like_path(self):
+        """The Zotero resolver pattern relies on #pdf src directly."""
+        html = b"""
+        <html>
+            <iframe id="pdf" src="/content/abcdef123456"></iframe>
+        </html>
+        """
+        url = extract_scihub_pdf_url(html, "https://sci-hub.se")
+        assert url == "https://sci-hub.se/content/abcdef123456"
+
 
 class TestDownloadFromScihub:
     """Tests for download_from_scihub function."""
@@ -168,6 +178,60 @@ class TestDownloadFromScihub:
 
         assert pdf_bytes == b"%PDF-1.4 valid pdf"
         assert ("https://cdn.sci-hub.st/paper.pdf", "https://sci-hub.st/10.1234/test") in calls
+
+    def test_skips_known_unavailable_page_and_tries_next_mirror(self, monkeypatch):
+        def mock_curl_get(url, timeout=60, referer=None):
+            if url == "https://sci-hub.se/10.1234/test":
+                return 200, b"<html>Unfortunately, Sci-Hub doesn't have the requested document</html>"
+            if url == "https://sci-hub.st/10.1234/test":
+                return 200, b'<iframe id="pdf" src="/content/abcdef123456"></iframe>'
+            if url == "https://sci-hub.st/content/abcdef123456":
+                return 200, b"%PDF-1.4 valid pdf"
+            return 404, b""
+
+        monkeypatch.setattr(
+            "autocheck.resolvers.title_downloader.curl_get",
+            mock_curl_get,
+        )
+        monkeypatch.setattr(
+            "autocheck.resolvers.scihub_common.curl_get",
+            mock_curl_get,
+        )
+
+        pdf_bytes = download_from_scihub(
+            "10.1234/test",
+            mirrors=["https://sci-hub.se", "https://sci-hub.st"],
+        )
+
+        assert pdf_bytes == b"%PDF-1.4 valid pdf"
+
+    def test_tries_encoded_doi_variant(self, monkeypatch):
+        calls = []
+
+        def mock_curl_get(url, timeout=60, referer=None):
+            calls.append(url)
+            if url == "https://sci-hub.se/10.1234%2Ftest":
+                return 200, b'<iframe id="pdf" src="/downloads/paper.pdf"></iframe>'
+            if url == "https://sci-hub.se/downloads/paper.pdf":
+                return 200, b"%PDF-1.4 valid pdf"
+            return 404, b""
+
+        monkeypatch.setattr(
+            "autocheck.resolvers.title_downloader.curl_get",
+            mock_curl_get,
+        )
+        monkeypatch.setattr(
+            "autocheck.resolvers.scihub_common.curl_get",
+            mock_curl_get,
+        )
+
+        pdf_bytes = download_from_scihub(
+            "10.1234/test",
+            mirrors=["https://sci-hub.se"],
+        )
+
+        assert pdf_bytes == b"%PDF-1.4 valid pdf"
+        assert "https://sci-hub.se/10.1234%2Ftest" in calls
 
 
 class TestTitleDownloader:
@@ -339,6 +403,33 @@ class TestSciHubResolver:
         assert match is not None
         assert match.pdf_url == "https://sci-hub.se/downloads/2024-01-01/paper"
         assert match.external_id == "doi:10.1234/test"
+
+    def test_locate_skips_unavailable_page(self, monkeypatch):
+        def mock_curl_get(url, timeout=60, referer=None):
+            if url == "https://sci-hub.se/10.1234/test":
+                return 200, b"<html>article not found</html>"
+            if url == "https://sci-hub.st/10.1234/test":
+                return 200, b'<iframe id="pdf" src="/content/abcdef123456"></iframe>'
+            return 404, b""
+
+        monkeypatch.setattr(
+            "autocheck.resolvers.scihub.curl_get",
+            mock_curl_get,
+        )
+
+        resolver = SciHubResolver(custom_url="https://sci-hub.se")
+        resolver.mirrors = ["https://sci-hub.se", "https://sci-hub.st"]
+        match = resolver.locate(
+            ReferenceEntry(
+                ref_id="[1]",
+                raw_text="[1] ref",
+                title="Paper",
+                doi="10.1234/test",
+            )
+        )
+
+        assert match is not None
+        assert match.pdf_url == "https://sci-hub.st/content/abcdef123456"
 
 
 class TestReferenceManagerSciHubDownload:

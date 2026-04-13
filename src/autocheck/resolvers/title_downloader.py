@@ -21,34 +21,35 @@ from autocheck.resolvers.scihub_common import (
     curl_get,
     download_pdf_bytes,
     extract_scihub_pdf_url,
-    normalize_doi,
+    iter_doi_candidates,
+    page_indicates_unavailable,
 )
 
 
 def download_from_scihub(doi: str, mirrors: list[str] | None = None) -> Optional[bytes]:
     """Download PDF from Sci-Hub using DOI."""
-    normalized_doi = normalize_doi(doi)
-    if not normalized_doi:
+    doi_candidates = iter_doi_candidates(doi)
+    if not doi_candidates:
         return None
 
     for mirror in build_scihub_mirror_list(mirrors=mirrors):
-        try:
-            url = f"{mirror}/{normalized_doi}"
-            status, content = curl_get(url)
-            if status != 200 or not content:
-                continue
+        for doi_candidate in doi_candidates:
+            try:
+                url = f"{mirror}/{doi_candidate}"
+                status, content = curl_get(url)
+                if status != 200 or not content or page_indicates_unavailable(content):
+                    continue
 
-            pdf_url = extract_scihub_pdf_url(content, mirror)
-            if not pdf_url:
-                continue
+                pdf_url = extract_scihub_pdf_url(content, mirror)
+                if not pdf_url:
+                    continue
 
-            pdf_content = download_pdf_bytes(pdf_url, timeout=120, referer=url)
-            if not pdf_content:
+                pdf_content = download_pdf_bytes(pdf_url, timeout=120, referer=url)
+                if not pdf_content:
+                    continue
+                return pdf_content
+            except Exception:
                 continue
-            return pdf_content
-
-        except Exception:
-            continue
 
     return None
 
