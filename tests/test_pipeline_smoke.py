@@ -263,8 +263,8 @@ def test_settings_default_to_llm_verification_only(tmp_path, monkeypatch) -> Non
     settings = AppSettings.from_env(project_root=tmp_path)
     assert settings.enable_llm_extraction is False
     assert settings.enable_llm_verification is True
-    assert settings.chat_model == "gpt-5.4"
-    assert settings.verify_model == "gpt-5.4"
+    assert settings.chat_model == "qwen3-max"
+    assert settings.verify_model == "qwen3-max"
 
 
 def test_extractor_ignores_conference_header_like_nips_2017() -> None:

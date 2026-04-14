@@ -24,6 +24,9 @@ _TEST_ENV_KEYS = (
     "AUTOCHECK_OPENAI_WIRE_API",
     "AUTOCHECK_OPENAI_DISABLE_RESPONSE_STORAGE",
     "AUTOCHECK_MODEL_REASONING_EFFORT",
+    "AUTOCHECK_ENABLE_THINKING",
+    "AUTOCHECK_THINKING_BUDGET",
+    "AUTOCHECK_PRESERVE_THINKING",
     "AUTOCHECK_ENABLE_LLM_EXTRACTION",
     "AUTOCHECK_ENABLE_LLM_VERIFICATION",
     "AUTOCHECK_CHAT_MODEL",
@@ -282,7 +285,7 @@ def test_api_config_returns_effective_settings(tmp_path, monkeypatch) -> None:
     payload = response.json()
     assert payload["env_path"] == str(tmp_path / ".env")
     assert payload["has_env_file"] is False
-    assert payload["values"]["AUTOCHECK_VERIFY_MODEL"] == "gpt-5.4"
+    assert payload["values"]["AUTOCHECK_VERIFY_MODEL"] == "qwen3-max"
     assert any(field["key"] == "OPENAI_API_KEY" for field in payload["fields"])
 
 

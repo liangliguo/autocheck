@@ -53,17 +53,20 @@ uv sync --dev
 cp .env.example .env
 ```
 
-如果使用阿里云百炼 + Qwen，可以填入以下配置：
+如果使用阿里云百炼 + Qwen3-Max，可以填入以下配置：
 
 ```bash
 OPENAI_API_KEY=sk-你的密钥
 AUTOCHECK_OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-AUTOCHECK_CHAT_MODEL=qwen-max
-AUTOCHECK_VERIFY_MODEL=qwen-max
+AUTOCHECK_CHAT_MODEL=qwen3-max
+AUTOCHECK_VERIFY_MODEL=qwen3-max
 AUTOCHECK_TEMPERATURE=0
+AUTOCHECK_ENABLE_THINKING=true
+AUTOCHECK_THINKING_BUDGET=50
+AUTOCHECK_PRESERVE_THINKING=true
 AUTOCHECK_ENABLE_LLM_EXTRACTION=false
 AUTOCHECK_ENABLE_LLM_VERIFICATION=true
-AUTOCHECK_STRUCTURED_OUTPUT_METHOD=function_calling
+AUTOCHECK_STRUCTURED_OUTPUT_METHOD=json_mode
 ```
 
 ### 4. 启动 Web 界面
@@ -166,11 +169,11 @@ uv run autocheck run <source> [options]
 - `AUTOCHECK_OPENAI_BASE_URL`
   OpenAI 兼容接口地址；留空时使用 SDK 默认地址
 - `AUTOCHECK_CHAT_MODEL`
-  默认聊天模型，默认值为 `gpt-5.4`
+  默认聊天模型，默认值为 `qwen3-max`
 - `AUTOCHECK_EXTRACT_MODEL`
   抽取阶段模型；留空时回退到 `AUTOCHECK_CHAT_MODEL`
 - `AUTOCHECK_VERIFY_MODEL`
-  核验阶段模型，默认值为 `gpt-5.4`
+  核验阶段模型，默认值为 `qwen3-max`
 - `AUTOCHECK_TEMPERATURE`
   模型温度，默认值为 `0`
 
@@ -203,6 +206,17 @@ uv run autocheck run <source> [options]
 - `AUTOCHECK_MODEL_REASONING_EFFORT`
   推理强度；留空时不显式传递
 
+### Qwen / 百炼兼容接口相关
+
+以下参数主要在阿里云百炼等 OpenAI 兼容接口下生效，会通过 `extra_body` 传递：
+
+- `AUTOCHECK_ENABLE_THINKING`
+  是否启用深度思考，默认值为 `false`
+- `AUTOCHECK_THINKING_BUDGET`
+  思考预算，默认值为 `0`
+- `AUTOCHECK_PRESERVE_THINKING`
+  是否保留多轮思考上下文，默认值为 `false`
+
 ### 下载相关
 
 - `AUTOCHECK_SCIHUB_URL`
@@ -232,6 +246,20 @@ AUTOCHECK_STRUCTURED_OUTPUT_METHOD=json_mode
 ```
 
 如果第三方接口在结构化输出上兼容性较弱，优先尝试将 `AUTOCHECK_STRUCTURED_OUTPUT_METHOD` 改为 `json_mode`。
+
+### 使用阿里云百炼 + Qwen3-Max
+
+```bash
+OPENAI_API_KEY=your-dashscope-key
+AUTOCHECK_OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+AUTOCHECK_CHAT_MODEL=qwen3-max
+AUTOCHECK_VERIFY_MODEL=qwen3-max
+AUTOCHECK_ENABLE_THINKING=true
+AUTOCHECK_THINKING_BUDGET=50
+AUTOCHECK_PRESERVE_THINKING=true
+AUTOCHECK_STRUCTURED_OUTPUT_METHOD=json_mode
+AUTOCHECK_TEMPERATURE=0
+```
 
 如果你需要走系统代理：
 

@@ -55,6 +55,9 @@ class AppSettings:
     openai_wire_api: str
     openai_disable_response_storage: bool
     model_reasoning_effort: str
+    enable_thinking: bool
+    thinking_budget: int
+    preserve_thinking: bool
     enable_llm_extraction: bool
     enable_llm_verification: bool
     structured_output_method: str  # "function_calling" or "json_mode"
@@ -69,9 +72,9 @@ class AppSettings:
             project_root=root,
             data_dir=data_dir,
             workspaces_dir=data_dir / "workspaces",
-            chat_model=os.getenv("AUTOCHECK_CHAT_MODEL", "gpt-5.4"),
+            chat_model=os.getenv("AUTOCHECK_CHAT_MODEL", "qwen3-max"),
             extract_model=os.getenv("AUTOCHECK_EXTRACT_MODEL", ""),
-            verify_model=os.getenv("AUTOCHECK_VERIFY_MODEL", "gpt-5.4"),
+            verify_model=os.getenv("AUTOCHECK_VERIFY_MODEL", "qwen3-max"),
             temperature=float(os.getenv("AUTOCHECK_TEMPERATURE", "0")),
             chunk_size=int(os.getenv("AUTOCHECK_CHUNK_SIZE", "2200")),
             chunk_overlap=int(os.getenv("AUTOCHECK_CHUNK_OVERLAP", "300")),
@@ -90,6 +93,15 @@ class AppSettings:
                 default=True,
             ),
             model_reasoning_effort=os.getenv("AUTOCHECK_MODEL_REASONING_EFFORT", ""),
+            enable_thinking=_get_bool_env(
+                "AUTOCHECK_ENABLE_THINKING",
+                default=False,
+            ),
+            thinking_budget=int(os.getenv("AUTOCHECK_THINKING_BUDGET", "0")),
+            preserve_thinking=_get_bool_env(
+                "AUTOCHECK_PRESERVE_THINKING",
+                default=False,
+            ),
             enable_llm_extraction=_get_bool_env(
                 "AUTOCHECK_ENABLE_LLM_EXTRACTION",
                 default=False,
