@@ -45,5 +45,10 @@ autocheck = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[[tool.uv.index]]
+name = "ustc"
+url = "https://mirrors.ustc.edu.cn/pypi/simple"
+default = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
