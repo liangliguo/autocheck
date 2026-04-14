@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -96,16 +97,17 @@ def create_app(
         max_references: str = Form(default=""),
         report_dir: str = Form(default=""),
         skip_download: bool = Form(default=False),
-    ) -> RunResponse:
+        ) -> RunResponse:
         settings = _settings_from_request(request)
         try:
-            source_path, workspace = await _prepare_source(
+            source_path, workspace, output_dir, max_refs = await _prepare_run_context(
                 settings=settings,
                 manuscript_text=manuscript_text,
                 manuscript_file=manuscript_file,
                 manuscript_url=manuscript_url,
+                report_dir=report_dir,
+                max_references=max_references,
             )
-            output_dir = _resolve_report_dir(settings, workspace, report_dir)
             pipeline_factory = request.app.state.pipeline_factory
             pipeline = pipeline_factory(settings)
             report, paths = pipeline.run(
@@ -113,19 +115,71 @@ def create_app(
                 report_dir=output_dir,
                 workspace_dir=workspace.root_dir,
                 skip_download=skip_download,
-                max_references=_parse_max_references(max_references),
+                max_references=max_refs,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        markdown = Path(paths["markdown"]).read_text(encoding="utf-8")
-        return RunResponse(
-            source_path=str(source_path),
+        return _build_run_response(
+            settings=settings,
+            source_path=source_path,
             report=report,
-            report_paths={key: str(value) for key, value in paths.items()},
-            markdown_preview=markdown,
-            recent_reports=_recent_reports(settings),
+            paths=paths,
         )
+
+    @app.post("/api/run/stream")
+    async def run_stream(
+        request: Request,
+        manuscript_text: str = Form(default=""),
+        manuscript_file: UploadFile | None = File(default=None),
+        manuscript_url: str = Form(default=""),
+        max_references: str = Form(default=""),
+        report_dir: str = Form(default=""),
+        skip_download: bool = Form(default=False),
+    ) -> StreamingResponse:
+        settings = _settings_from_request(request)
+        try:
+            source_path, workspace, output_dir, max_refs = await _prepare_run_context(
+                settings=settings,
+                manuscript_text=manuscript_text,
+                manuscript_file=manuscript_file,
+                manuscript_url=manuscript_url,
+                report_dir=report_dir,
+                max_references=max_references,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        pipeline_factory = request.app.state.pipeline_factory
+        pipeline = pipeline_factory(settings)
+
+        def iter_stream():
+            try:
+                for event in pipeline.run_incremental(
+                    source_path=source_path,
+                    report_dir=output_dir,
+                    workspace_dir=workspace.root_dir,
+                    skip_download=skip_download,
+                    max_references=max_refs,
+                ):
+                    paths = getattr(pipeline, "_current_run_paths", None)
+                    run_payload = (
+                        _load_run_payload(settings=settings, source_path=source_path, paths=paths)
+                        if paths
+                        else None
+                    )
+                    yield _json_line(
+                        {
+                            "type": "event",
+                            "event": event.event,
+                            "payload": event.payload,
+                            "run": run_payload,
+                        }
+                    )
+            except Exception as exc:
+                yield _json_line({"type": "error", "message": str(exc) or type(exc).__name__})
+
+        return StreamingResponse(iter_stream(), media_type="application/x-ndjson")
 
     @app.get("/api/export/workspace/{workspace_name}")
     def export_workspace(workspace_name: str, request: Request) -> StreamingResponse:
@@ -268,6 +322,24 @@ async def _prepare_source(
     return target_path, workspace
 
 
+async def _prepare_run_context(
+    settings: AppSettings,
+    manuscript_text: str,
+    manuscript_file: UploadFile | None,
+    manuscript_url: str,
+    report_dir: str,
+    max_references: str,
+) -> tuple[Path, PaperWorkspace, Path, int | None]:
+    source_path, workspace = await _prepare_source(
+        settings=settings,
+        manuscript_text=manuscript_text,
+        manuscript_file=manuscript_file,
+        manuscript_url=manuscript_url,
+    )
+    output_dir = _resolve_report_dir(settings, workspace, report_dir)
+    return source_path, workspace, output_dir, _parse_max_references(max_references)
+
+
 def _build_input_name(stem: str, suffix: str) -> str:
     timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     safe_stem = "".join(char if char.isalnum() or char in {"-", "_"} else "-" for char in stem).strip("-")
@@ -317,6 +389,50 @@ def _settings_from_request(request: Request) -> AppSettings:
 
 def _config_service_from_request(request: Request) -> ConfigService:
     return request.app.state.config_service
+
+
+def _build_run_response(
+    settings: AppSettings,
+    source_path: str | Path,
+    report: VerificationReport,
+    paths: dict[str, Path],
+) -> RunResponse:
+    markdown = Path(paths["markdown"]).read_text(encoding="utf-8")
+    return RunResponse(
+        source_path=str(source_path),
+        report=report,
+        report_paths={key: str(value) for key, value in paths.items()},
+        markdown_preview=markdown,
+        recent_reports=_recent_reports(settings),
+    )
+
+
+def _load_run_payload(
+    settings: AppSettings,
+    source_path: str | Path,
+    paths: dict[str, Path],
+) -> dict | None:
+    json_path = paths.get("json")
+    markdown_path = paths.get("markdown")
+    if not json_path or not Path(json_path).exists():
+        return None
+
+    report_payload = json.loads(Path(json_path).read_text(encoding="utf-8"))
+    markdown_preview = ""
+    if markdown_path and Path(markdown_path).exists():
+        markdown_preview = Path(markdown_path).read_text(encoding="utf-8")
+
+    return {
+        "source_path": str(source_path),
+        "report": report_payload,
+        "report_paths": {key: str(value) for key, value in paths.items()},
+        "markdown_preview": markdown_preview,
+        "recent_reports": _recent_reports(settings),
+    }
+
+
+def _json_line(payload: dict) -> str:
+    return json.dumps(payload, ensure_ascii=False) + "\n"
 
 
 def _static_dir() -> Path:

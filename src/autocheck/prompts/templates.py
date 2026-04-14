@@ -5,6 +5,7 @@ Rules:
 - Preserve citation markers exactly when possible.
 - Reference entries must be normalized from the raw bibliography snippets.
 - If a field is unknown, leave it empty instead of hallucinating.
+- Return valid JSON that matches the requested schema.
 """.strip()
 
 
@@ -17,7 +18,7 @@ Candidate cited sentences:
 Raw bibliography entries:
 {raw_references}
 
-Return structured output with:
+Return valid JSON with:
 - claims: claim_id, text, citation_markers, section, paragraph_index
 - references: ref_id, raw_text, title, authors, year, doi, arxiv_id, aliases
 """.strip()
@@ -33,6 +34,7 @@ Rules:
 - Use not_found only when the paper metadata is missing or the evidence is unusable.
 - Be conservative. If evidence is weak, do not over-credit the citation.
 - Reference evidence snippets by their chunk ids.
+- Return valid JSON that matches the requested schema.
 """.strip()
 
 
@@ -78,6 +80,7 @@ Rules:
 - Leave used_chunk_ids empty because no source snippets were available.
 - In reasoning, explicitly mention the strongest claim-to-title matches or mismatches.
 - Do not invent facts about the paper beyond what can be reasonably inferred from the metadata.
+- Return valid JSON that matches the requested schema.
 """.strip()
 
 
@@ -107,7 +110,7 @@ Task:
 - If you give unsupported_or_misleading or not_found, explain what is missing or mismatched between the claim and the reference metadata.
 - Treat this as citation-reference matching, not full-text evidence verification.
 
-Return structured output with:
+Return valid JSON with:
 - verdict
 - confidence
 - reasoning

@@ -17,6 +17,19 @@ def _get_bool_env(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def normalize_structured_output_method(
+    structured_output_method: str,
+    *,
+    enable_thinking: bool,
+) -> str:
+    method = (structured_output_method or "").strip().lower() or "function_calling"
+    if enable_thinking and method == "function_calling":
+        return "json_mode"
+    if method not in {"function_calling", "json_mode"}:
+        return "function_calling"
+    return method
+
+
 @dataclass(frozen=True)
 class PaperWorkspace:
     name: str
@@ -68,6 +81,14 @@ class AppSettings:
         root = (project_root or Path.cwd()).resolve()
         load_dotenv(root / ".env", override=False)
         data_dir = root / "data"
+        enable_thinking = _get_bool_env(
+            "AUTOCHECK_ENABLE_THINKING",
+            default=False,
+        )
+        structured_output_method = normalize_structured_output_method(
+            os.getenv("AUTOCHECK_STRUCTURED_OUTPUT_METHOD", "function_calling"),
+            enable_thinking=enable_thinking,
+        )
         return cls(
             project_root=root,
             data_dir=data_dir,
@@ -93,10 +114,7 @@ class AppSettings:
                 default=True,
             ),
             model_reasoning_effort=os.getenv("AUTOCHECK_MODEL_REASONING_EFFORT", ""),
-            enable_thinking=_get_bool_env(
-                "AUTOCHECK_ENABLE_THINKING",
-                default=False,
-            ),
+            enable_thinking=enable_thinking,
             thinking_budget=int(os.getenv("AUTOCHECK_THINKING_BUDGET", "0")),
             preserve_thinking=_get_bool_env(
                 "AUTOCHECK_PRESERVE_THINKING",
@@ -110,7 +128,7 @@ class AppSettings:
                 "AUTOCHECK_ENABLE_LLM_VERIFICATION",
                 default=True,
             ),
-            structured_output_method=os.getenv("AUTOCHECK_STRUCTURED_OUTPUT_METHOD", "function_calling"),
+            structured_output_method=structured_output_method,
             scihub_url=os.getenv("AUTOCHECK_SCIHUB_URL", ""),
         )
 

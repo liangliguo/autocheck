@@ -33,6 +33,7 @@ class AutoCheckPipeline:
         self.settings = settings
         self.settings.ensure_directories()
         self._last_run_result: tuple[VerificationReport, Dict[str, Path]] | None = None
+        self._current_run_paths: Dict[str, Path] | None = None
 
         extract_model = (
             build_chat_model(settings, purpose="extract")
@@ -83,6 +84,7 @@ class AutoCheckPipeline:
         max_references: int | None = None,
     ) -> Iterator[PipelineEvent]:
         self._last_run_result = None
+        self._current_run_paths = None
         requested_source = source_path
         source = Path(source_path) if isinstance(source_path, Path) else source_path
         workspace = self.settings.workspace_for_source(source, workspace_dir=workspace_dir)
@@ -103,6 +105,7 @@ class AutoCheckPipeline:
         output_dir = Path(report_dir) if report_dir else workspace.reports_dir
         stem = slugify(resolved_source.stem, fallback=workspace.name or "report")
         paths = self.report_writer.initialize_incremental_output(output_dir, stem)
+        self._current_run_paths = paths
 
         yield self._emit_event(
             paths["events"],

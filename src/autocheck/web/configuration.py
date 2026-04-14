@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from autocheck.config.settings import AppSettings
+from autocheck.config.settings import AppSettings, normalize_structured_output_method
 
 ConfigValue = str | int | float | bool
 
@@ -371,6 +371,10 @@ class ConfigService:
         return parsed
 
     def _validate_values(self, values: dict[str, ConfigValue]) -> None:
+        values["AUTOCHECK_STRUCTURED_OUTPUT_METHOD"] = normalize_structured_output_method(
+            str(values["AUTOCHECK_STRUCTURED_OUTPUT_METHOD"]),
+            enable_thinking=bool(values["AUTOCHECK_ENABLE_THINKING"]),
+        )
         chunk_size = int(values["AUTOCHECK_CHUNK_SIZE"])
         chunk_overlap = int(values["AUTOCHECK_CHUNK_OVERLAP"])
         if chunk_overlap >= chunk_size:

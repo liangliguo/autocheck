@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -8,6 +9,7 @@ from autocheck.schemas.models import (
     ClaimRecord,
     EvidenceChunk,
     ParsedDocument,
+    PipelineEvent,
     ReferenceEntry,
     ReportProgress,
     ReportSummary,
@@ -43,6 +45,7 @@ _TEST_ENV_KEYS = (
 class FakePipeline:
     def __init__(self, _settings: AppSettings) -> None:
         self.settings = _settings
+        self._current_run_paths = None
 
     def run(
         self,
@@ -128,11 +131,48 @@ class FakePipeline:
                 )
             ],
         )
+        json_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
         return report, {
             "json": json_path,
             "markdown": markdown_path,
             "events": events_path,
         }
+
+    def run_incremental(
+        self,
+        source_path,
+        report_dir=None,
+        workspace_dir=None,
+        skip_download=False,
+        max_references=None,
+    ):
+        report, paths = self.run(
+            source_path=source_path,
+            report_dir=report_dir,
+            workspace_dir=workspace_dir,
+            skip_download=skip_download,
+            max_references=max_references,
+        )
+        self._current_run_paths = paths
+        yield PipelineEvent(
+            event="assessment_ready",
+            timestamp="2026-03-24T00:00:00+00:00",
+            payload={
+                "stage": "verify",
+                "current": 1,
+                "total": 1,
+                "assessment": report.assessments[0].model_dump(mode="json"),
+            },
+        )
+        yield PipelineEvent(
+            event="report_completed",
+            timestamp="2026-03-24T00:00:01+00:00",
+            payload={
+                "stage": "write_report",
+                "summary": report.summary.model_dump(mode="json"),
+                "report_paths": {key: str(value) for key, value in paths.items()},
+            },
+        )
 
 
 def _clear_env(monkeypatch) -> None:
@@ -191,6 +231,28 @@ def test_api_run_accepts_pasted_text_and_returns_json(tmp_path, monkeypatch) -> 
     assert payload["markdown_preview"] == "# Demo Report\n"
     assert "/data/workspaces/" in payload["source_path"]
     assert payload["recent_reports"][0].endswith("sample.report.json")
+
+
+def test_api_run_stream_emits_incremental_updates(tmp_path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
+    settings = AppSettings.from_env(project_root=tmp_path)
+    app = create_app(settings=settings, pipeline_factory=FakePipeline)
+    client = TestClient(app)
+
+    with client.stream(
+        "POST",
+        "/api/run/stream",
+        data={
+            "manuscript_text": "Transformers use attention [1].\n\nReferences\n[1] Demo paper. 2017.",
+            "max_references": "1",
+        },
+    ) as response:
+        assert response.status_code == 200
+        messages = [json.loads(line) for line in response.iter_lines() if line]
+
+    assert any(message["event"] == "assessment_ready" for message in messages)
+    assert messages[-1]["event"] == "report_completed"
+    assert messages[-1]["run"]["report"]["summary"]["strong_support"] == 1
 
 
 def test_api_run_rejects_missing_input(tmp_path, monkeypatch) -> None:
@@ -318,6 +380,33 @@ def test_api_config_updates_env_and_app_settings(tmp_path, monkeypatch) -> None:
     assert "AUTOCHECK_VERIFY_MODEL=gpt-5.4-mini" in env_text
     assert "AUTOCHECK_ENABLE_LLM_VERIFICATION=false" in env_text
     assert "AUTOCHECK_CHUNK_SIZE=3200" in env_text
+
+
+def test_api_config_binds_thinking_to_json_mode(tmp_path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
+    settings = AppSettings.from_env(project_root=tmp_path)
+    app = create_app(settings=settings, pipeline_factory=FakePipeline)
+    client = TestClient(app)
+
+    response = client.put(
+        "/api/config",
+        json={
+            "values": {
+                "AUTOCHECK_ENABLE_THINKING": True,
+                "AUTOCHECK_STRUCTURED_OUTPUT_METHOD": "function_calling",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["values"]["AUTOCHECK_ENABLE_THINKING"] is True
+    assert payload["values"]["AUTOCHECK_STRUCTURED_OUTPUT_METHOD"] == "json_mode"
+    assert client.app.state.settings.structured_output_method == "json_mode"
+
+    env_text = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "AUTOCHECK_ENABLE_THINKING=true" in env_text
+    assert "AUTOCHECK_STRUCTURED_OUTPUT_METHOD=json_mode" in env_text
 
 
 def test_api_config_rejects_invalid_chunk_settings(tmp_path, monkeypatch) -> None:

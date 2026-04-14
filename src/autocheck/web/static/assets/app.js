@@ -29,6 +29,44 @@ async function fetchJson(url, options = {}) {
   return payload;
 }
 
+async function streamJsonLines(url, options = {}, onMessage) {
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    const payload = await readJson(response);
+    const message = payload.detail || payload.message || "请求失败";
+    throw new Error(message);
+  }
+  if (!response.body) {
+    throw new Error("浏览器不支持流式响应。");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    let newlineIndex = buffer.indexOf("\n");
+    while (newlineIndex !== -1) {
+      const line = buffer.slice(0, newlineIndex).trim();
+      buffer = buffer.slice(newlineIndex + 1);
+      if (line) {
+        onMessage(JSON.parse(line));
+      }
+      newlineIndex = buffer.indexOf("\n");
+    }
+  }
+
+  const tail = buffer.trim();
+  if (tail) {
+    onMessage(JSON.parse(tail));
+  }
+}
+
 function formatBool(value) {
   return value ? "开启" : "关闭";
 }
@@ -228,6 +266,7 @@ function applyConfigValues(form, payload, useDefaults = false) {
     }
     element.value = nextValue ?? "";
   });
+  enforceConfigBindings(form);
 }
 
 function collectConfigValues(form, payload) {
@@ -254,6 +293,20 @@ function collectConfigValues(form, payload) {
   return values;
 }
 
+function enforceConfigBindings(form) {
+  const enableThinking = form?.elements?.namedItem("AUTOCHECK_ENABLE_THINKING");
+  const structuredMethod = form?.elements?.namedItem("AUTOCHECK_STRUCTURED_OUTPUT_METHOD");
+  if (!enableThinking || !structuredMethod) {
+    return;
+  }
+
+  if (enableThinking.checked) {
+    structuredMethod.value = "json_mode";
+  } else if ((structuredMethod.value || "").trim() === "function_calling") {
+    enableThinking.checked = false;
+  }
+}
+
 async function initRunPage() {
   const form = document.getElementById("run-form");
   const submitButton = document.getElementById("run-submit");
@@ -277,15 +330,37 @@ async function initRunPage() {
     submitButton.disabled = true;
     submitButton.textContent = "正在运行…";
     statusPill.textContent = "任务执行中";
+    resultBox.innerHTML = '<div class="empty-state">任务已提交，正在逐步生成报告…</div>';
 
     try {
-      const payload = await fetchJson("/api/run", {
+      let sawFinalReport = false;
+      await streamJsonLines("/api/run/stream", {
         method: "POST",
         body: new FormData(form),
+      }, (message) => {
+        if (message.type === "error") {
+          throw new Error(message.message || "运行失败");
+        }
+
+        const payload = message.run;
+        if (payload) {
+          renderRunResult(resultBox, payload);
+          renderRecentReports(recentReportsBox, payload.recent_reports || []);
+        }
+
+        if (message.event === "assessment_ready") {
+          const current = message.payload?.current ?? "-";
+          const total = message.payload?.total ?? "-";
+          statusPill.textContent = `已完成 ${current}/${total} 条引用核验`;
+        } else if (message.event === "report_completed") {
+          sawFinalReport = true;
+          statusPill.textContent = "运行完成";
+        }
       });
-      renderRunResult(resultBox, payload);
-      renderRecentReports(recentReportsBox, payload.recent_reports || []);
-      statusPill.textContent = "运行完成";
+
+      if (!sawFinalReport) {
+        statusPill.textContent = "运行完成";
+      }
     } catch (error) {
       errorBox.textContent = error.message;
       errorBox.classList.remove("is-hidden");
@@ -311,6 +386,27 @@ async function initConfigPage() {
   renderConfigForm(groupsContainer, configPayload);
   metaBar.textContent = `配置文件：${configPayload.env_path}`;
   statusPill.textContent = configPayload.has_env_file ? "已加载 .env" : "将创建 .env";
+  applyConfigValues(form, configPayload, false);
+
+  form?.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLSelectElement)) {
+      return;
+    }
+    if (target.name === "AUTOCHECK_ENABLE_THINKING") {
+      enforceConfigBindings(form);
+      return;
+    }
+    if (target.name === "AUTOCHECK_STRUCTURED_OUTPUT_METHOD") {
+      if ((target.value || "").trim() === "function_calling") {
+        const thinking = form.elements.namedItem("AUTOCHECK_ENABLE_THINKING");
+        if (thinking) {
+          thinking.checked = false;
+        }
+      }
+      enforceConfigBindings(form);
+    }
+  });
 
   form?.addEventListener("submit", async (event) => {
     event.preventDefault();

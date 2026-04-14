@@ -75,3 +75,13 @@ def test_settings_read_qwen_thinking_configuration(tmp_path, monkeypatch) -> Non
     assert settings.enable_thinking is True
     assert settings.thinking_budget == 128
     assert settings.preserve_thinking is True
+
+
+def test_settings_force_json_mode_when_thinking_is_enabled(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AUTOCHECK_ENABLE_THINKING", "true")
+    monkeypatch.setenv("AUTOCHECK_STRUCTURED_OUTPUT_METHOD", "function_calling")
+
+    settings = AppSettings.from_env(project_root=tmp_path)
+
+    assert settings.enable_thinking is True
+    assert settings.structured_output_method == "json_mode"
