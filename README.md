@@ -53,7 +53,7 @@ uv sync --dev
 cp .env.example .env
 ```
 
-如果使用阿里云百炼 + Qwen3-Max，可以填入以下配置：
+默认推荐先从不开启 thinking、并使用 `function_calling` 开始：
 
 ```bash
 OPENAI_API_KEY=sk-你的密钥
@@ -61,12 +61,12 @@ AUTOCHECK_OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 AUTOCHECK_CHAT_MODEL=qwen3-max
 AUTOCHECK_VERIFY_MODEL=qwen3-max
 AUTOCHECK_TEMPERATURE=0
-AUTOCHECK_ENABLE_THINKING=true
-AUTOCHECK_THINKING_BUDGET=50
-AUTOCHECK_PRESERVE_THINKING=true
+AUTOCHECK_ENABLE_THINKING=false
+AUTOCHECK_THINKING_BUDGET=0
+AUTOCHECK_PRESERVE_THINKING=false
 AUTOCHECK_ENABLE_LLM_EXTRACTION=false
 AUTOCHECK_ENABLE_LLM_VERIFICATION=true
-AUTOCHECK_STRUCTURED_OUTPUT_METHOD=json_mode
+AUTOCHECK_STRUCTURED_OUTPUT_METHOD=function_calling
 ```
 
 ### 4. 启动 Web 界面
@@ -217,6 +217,13 @@ uv run autocheck run <source> [options]
 - `AUTOCHECK_PRESERVE_THINKING`
   是否保留多轮思考上下文，默认值为 `false`
 
+默认建议：
+
+- `AUTOCHECK_ENABLE_THINKING=false`
+- `AUTOCHECK_STRUCTURED_OUTPUT_METHOD=function_calling`
+
+如果需要开启 thinking，请同时将结构化输出切到 `json_mode`。
+
 ### 下载相关
 
 - `AUTOCHECK_SCIHUB_URL`
@@ -242,10 +249,11 @@ OPENAI_API_KEY=your-key
 AUTOCHECK_OPENAI_BASE_URL=https://api.deepseek.com/v1
 AUTOCHECK_CHAT_MODEL=deepseek-chat
 AUTOCHECK_VERIFY_MODEL=deepseek-chat
-AUTOCHECK_STRUCTURED_OUTPUT_METHOD=json_mode
+AUTOCHECK_ENABLE_THINKING=false
+AUTOCHECK_STRUCTURED_OUTPUT_METHOD=function_calling
 ```
 
-如果第三方接口在结构化输出上兼容性较弱，优先尝试将 `AUTOCHECK_STRUCTURED_OUTPUT_METHOD` 改为 `json_mode`。
+如果第三方接口在 `function_calling` 下兼容性较弱，再改用 `json_mode`。若启用 thinking，则应使用 `json_mode`。
 
 ### 使用阿里云百炼 + Qwen3-Max
 
@@ -254,11 +262,20 @@ OPENAI_API_KEY=your-dashscope-key
 AUTOCHECK_OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 AUTOCHECK_CHAT_MODEL=qwen3-max
 AUTOCHECK_VERIFY_MODEL=qwen3-max
+AUTOCHECK_ENABLE_THINKING=false
+AUTOCHECK_THINKING_BUDGET=0
+AUTOCHECK_PRESERVE_THINKING=false
+AUTOCHECK_STRUCTURED_OUTPUT_METHOD=function_calling
+AUTOCHECK_TEMPERATURE=0
+```
+
+如果你明确需要开启深度思考，再调整为：
+
+```bash
 AUTOCHECK_ENABLE_THINKING=true
 AUTOCHECK_THINKING_BUDGET=50
 AUTOCHECK_PRESERVE_THINKING=true
 AUTOCHECK_STRUCTURED_OUTPUT_METHOD=json_mode
-AUTOCHECK_TEMPERATURE=0
 ```
 
 如果你需要走系统代理：
