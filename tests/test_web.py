@@ -383,6 +383,50 @@ def test_api_config_updates_env_and_app_settings(tmp_path, monkeypatch) -> None:
     assert "AUTOCHECK_VERIFY_MODEL=gpt-5.4-mini" in env_text
     assert "AUTOCHECK_ENABLE_LLM_VERIFICATION=false" in env_text
     assert "AUTOCHECK_CHUNK_SIZE=3200" in env_text
+    assert "AUTOCHECK_OPENAI_TIMEOUT" not in env_text
+    assert "AUTOCHECK_OPENAI_MAX_RETRIES" not in env_text
+    assert "AUTOCHECK_OPENAI_WIRE_API" not in env_text
+
+
+def test_api_config_omits_defaults_and_removes_reverted_values(tmp_path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
+    settings = AppSettings.from_env(project_root=tmp_path)
+    app = create_app(settings=settings, pipeline_factory=FakePipeline)
+    client = TestClient(app)
+
+    first = client.put(
+        "/api/config",
+        json={
+            "values": {
+                "AUTOCHECK_VERIFY_MODEL": "gpt-5.4-mini",
+                "AUTOCHECK_ENABLE_LLM_VERIFICATION": False,
+            }
+        },
+    )
+    assert first.status_code == 200
+
+    env_text = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "AUTOCHECK_VERIFY_MODEL=gpt-5.4-mini" in env_text
+    assert "AUTOCHECK_ENABLE_LLM_VERIFICATION=false" in env_text
+
+    second = client.put(
+        "/api/config",
+        json={
+            "values": {
+                "AUTOCHECK_VERIFY_MODEL": "qwen3-max",
+                "AUTOCHECK_ENABLE_LLM_VERIFICATION": True,
+            }
+        },
+    )
+    assert second.status_code == 200
+    payload = second.json()
+    assert payload["values"]["AUTOCHECK_VERIFY_MODEL"] == "qwen3-max"
+    assert payload["values"]["AUTOCHECK_ENABLE_LLM_VERIFICATION"] is True
+
+    env_text = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "AUTOCHECK_VERIFY_MODEL" not in env_text
+    assert "AUTOCHECK_ENABLE_LLM_VERIFICATION" not in env_text
+    assert "# AutoCheck Web UI managed settings" not in env_text
 
 
 def test_api_config_binds_thinking_to_json_mode(tmp_path, monkeypatch) -> None:

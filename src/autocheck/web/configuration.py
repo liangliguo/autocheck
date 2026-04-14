@@ -281,6 +281,7 @@ _FIELD_SPECS: tuple[ConfigFieldSpec, ...] = (
 _FIELD_BY_KEY = {spec.key: spec for spec in _FIELD_SPECS}
 _MANAGED_KEYS = tuple(spec.key for spec in _FIELD_SPECS)
 _ENV_LINE_RE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
+_MANAGED_HEADER = "# AutoCheck Web UI managed settings"
 
 
 class ConfigService:
@@ -385,9 +386,16 @@ class ConfigService:
         if self.env_path.exists():
             existing_lines = self.env_path.read_text(encoding="utf-8").splitlines()
 
+        managed_overrides = {
+            key: values[key]
+            for key, spec in _FIELD_BY_KEY.items()
+            if values[key] != spec.default
+        }
         rendered: list[str] = []
         seen: set[str] = set()
         for line in existing_lines:
+            if line.strip() == _MANAGED_HEADER:
+                continue
             match = _ENV_LINE_RE.match(line)
             if not match:
                 rendered.append(line)
@@ -396,17 +404,17 @@ class ConfigService:
             if key not in _MANAGED_KEYS:
                 rendered.append(line)
                 continue
-            rendered.append(f"{key}={self._serialize_for_env(values[key])}")
-            seen.add(key)
+            if key in managed_overrides:
+                rendered.append(f"{key}={self._serialize_for_env(managed_overrides[key])}")
+                seen.add(key)
 
-        missing = [key for key in _MANAGED_KEYS if key not in seen]
+        missing = [key for key in _MANAGED_KEYS if key in managed_overrides and key not in seen]
         if missing:
             if rendered and rendered[-1].strip():
                 rendered.append("")
-            if "# AutoCheck Web UI managed settings" not in rendered:
-                rendered.append("# AutoCheck Web UI managed settings")
+            rendered.append(_MANAGED_HEADER)
             for key in missing:
-                rendered.append(f"{key}={self._serialize_for_env(values[key])}")
+                rendered.append(f"{key}={self._serialize_for_env(managed_overrides[key])}")
 
         content = "\n".join(rendered).rstrip()
         self.env_path.write_text(f"{content}\n" if content else "", encoding="utf-8")
@@ -414,6 +422,8 @@ class ConfigService:
     def _apply_environment(self, values: dict[str, ConfigValue]) -> None:
         os.environ.pop("OPENAI_BASE_URL", None)
         os.environ.pop("OPENAI_API_BASE", None)
+        for key in _MANAGED_KEYS:
+            os.environ.pop(key, None)
         for key, value in values.items():
             os.environ[key] = self._serialize_for_process(value)
 
