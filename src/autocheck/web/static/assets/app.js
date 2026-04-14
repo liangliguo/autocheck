@@ -195,6 +195,174 @@ function renderRunResult(container, payload) {
   `;
 }
 
+function cloneJson(value) {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
+function mergeRunPayload(currentPayload, nextPayload) {
+  if (!currentPayload) {
+    return cloneJson(nextPayload);
+  }
+  if (!nextPayload) {
+    return currentPayload;
+  }
+
+  const merged = cloneJson(nextPayload);
+  const currentAssessments = currentPayload.report?.assessments || [];
+  const nextAssessments = merged.report?.assessments || [];
+  const seenAssessmentKeys = new Set(
+    nextAssessments.map((item) => `${item.claim_id}::${item.citation_marker}`),
+  );
+  currentAssessments.forEach((item) => {
+    const key = `${item.claim_id}::${item.citation_marker}`;
+    if (!seenAssessmentKeys.has(key)) {
+      nextAssessments.push(item);
+      seenAssessmentKeys.add(key);
+    }
+  });
+
+  const currentReferences = currentPayload.report?.parsed_document?.references || [];
+  const nextReferences = merged.report?.parsed_document?.references || [];
+  const seenReferenceIds = new Set(nextReferences.map((item) => item.ref_id));
+  currentReferences.forEach((item) => {
+    if (!seenReferenceIds.has(item.ref_id)) {
+      nextReferences.push(item);
+      seenReferenceIds.add(item.ref_id);
+    }
+  });
+
+  merged.report.assessments = nextAssessments;
+  merged.report.parsed_document.references = nextReferences;
+  return merged;
+}
+
+function applyStreamEventToPayload(currentPayload, message) {
+  const payload = mergeRunPayload(currentPayload, message.run);
+  if (!payload?.report) {
+    return payload;
+  }
+
+  const report = payload.report;
+  report.progress = report.progress || {};
+  report.parsed_document = report.parsed_document || {};
+  report.parsed_document.references = report.parsed_document.references || [];
+  report.assessments = report.assessments || [];
+
+  if (message.event === "reference_processed") {
+    if (message.payload?.current !== undefined) {
+      report.progress.completed_references = message.payload.current;
+    }
+    if (message.payload?.total !== undefined) {
+      report.progress.total_references = message.payload.total;
+    }
+  }
+
+  if (message.event === "assessment_ready") {
+    const assessment = message.payload?.assessment;
+    if (assessment) {
+      const key = `${assessment.claim_id}::${assessment.citation_marker}`;
+      const index = report.assessments.findIndex(
+        (item) => `${item.claim_id}::${item.citation_marker}` === key,
+      );
+      if (index === -1) {
+        report.assessments.push(assessment);
+      } else {
+        report.assessments[index] = assessment;
+      }
+    }
+    if (message.payload?.current !== undefined) {
+      report.progress.completed_assessments = message.payload.current;
+    }
+    if (message.payload?.total !== undefined) {
+      report.progress.total_assessments = message.payload.total;
+    }
+  }
+
+  if (message.event === "report_completed") {
+    report.status = "completed";
+  }
+
+  return payload;
+}
+
+function renderActivityFeed(container, items) {
+  if (!items.length) {
+    container.innerHTML = '<div class="empty-state">任务开始后，这里会持续追加流式事件。</div>';
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="activity-list">
+      ${items.map((item) => `
+        <article class="activity-item">
+          <div class="activity-meta">
+            <span class="activity-kind">${escapeHtml(item.kind)}</span>
+            <time>${escapeHtml(item.timestamp)}</time>
+          </div>
+          <p>${escapeHtml(item.text)}</p>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function formatStreamEvent(message) {
+  const now = new Date().toLocaleTimeString("zh-CN", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+
+  if (message.event === "assessment_ready") {
+    const assessment = message.payload?.assessment || {};
+    return {
+      kind: "assessment",
+      timestamp: now,
+      text: `${assessment.claim_id || "claim"} × ${assessment.citation_marker || "?"} -> ${assessment.verdict || "completed"}`,
+    };
+  }
+
+  if (message.event === "reference_processed") {
+    const record = message.payload?.record || {};
+    return {
+      kind: "reference",
+      timestamp: now,
+      text: `${record.ref_id || "reference"} -> ${record.status || "processed"}`,
+    };
+  }
+
+  if (message.event === "stage_started") {
+    return {
+      kind: "stage",
+      timestamp: now,
+      text: `开始阶段：${message.payload?.stage || "unknown"}`,
+    };
+  }
+
+  if (message.event === "stage_completed") {
+    return {
+      kind: "stage",
+      timestamp: now,
+      text: `完成阶段：${message.payload?.stage || "unknown"}`,
+    };
+  }
+
+  if (message.event === "report_completed") {
+    return {
+      kind: "report",
+      timestamp: now,
+      text: "报告写入完成",
+    };
+  }
+
+  return {
+    kind: message.event || "event",
+    timestamp: now,
+    text: JSON.stringify(message.payload || {}),
+  };
+}
+
 function groupFields(fields) {
   const groups = new Map();
   fields.forEach((field) => {
@@ -312,6 +480,7 @@ async function initRunPage() {
   const submitButton = document.getElementById("run-submit");
   const errorBox = document.getElementById("run-error");
   const resultBox = document.getElementById("run-result");
+  const activityBox = document.getElementById("run-activity");
   const recentReportsBox = document.getElementById("recent-reports");
   const configSummaryBox = document.getElementById("config-summary");
   const statusPill = document.getElementById("run-status");
@@ -330,10 +499,24 @@ async function initRunPage() {
     submitButton.disabled = true;
     submitButton.textContent = "正在运行…";
     statusPill.textContent = "任务执行中";
+    const streamItems = [];
+    renderActivityFeed(activityBox, [
+      {
+        kind: "client",
+        timestamp: new Date().toLocaleTimeString("zh-CN", {
+          hour12: false,
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+        text: "任务已提交，等待后端流式事件…",
+      },
+    ]);
     resultBox.innerHTML = '<div class="empty-state">任务已提交，正在逐步生成报告…</div>';
 
     try {
       let sawFinalReport = false;
+      let streamPayload = null;
       await streamJsonLines("/api/run/stream", {
         method: "POST",
         body: new FormData(form),
@@ -342,16 +525,26 @@ async function initRunPage() {
           throw new Error(message.message || "运行失败");
         }
 
-        const payload = message.run;
-        if (payload) {
-          renderRunResult(resultBox, payload);
-          renderRecentReports(recentReportsBox, payload.recent_reports || []);
+        streamItems.unshift(formatStreamEvent(message));
+        if (streamItems.length > 120) {
+          streamItems.length = 120;
+        }
+        renderActivityFeed(activityBox, streamItems);
+
+        streamPayload = applyStreamEventToPayload(streamPayload, message);
+        if (streamPayload) {
+          renderRunResult(resultBox, streamPayload);
+          renderRecentReports(recentReportsBox, streamPayload.recent_reports || []);
         }
 
         if (message.event === "assessment_ready") {
           const current = message.payload?.current ?? "-";
           const total = message.payload?.total ?? "-";
           statusPill.textContent = `已完成 ${current}/${total} 条引用核验`;
+        } else if (message.event === "reference_processed") {
+          const current = message.payload?.current ?? "-";
+          const total = message.payload?.total ?? "-";
+          statusPill.textContent = `已处理 ${current}/${total} 条参考文献`;
         } else if (message.event === "report_completed") {
           sawFinalReport = true;
           statusPill.textContent = "运行完成";

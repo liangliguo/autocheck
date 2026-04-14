@@ -193,6 +193,7 @@ def test_web_index_renders_frontend_shell(tmp_path, monkeypatch) -> None:
     assert "论文引用核验系统" in response.text
     assert 'data-page="run"' in response.text
     assert "/assets/app.js" in response.text
+    assert response.headers["cache-control"] == "no-store, no-cache, must-revalidate"
 
 
 def test_web_config_page_renders_frontend_shell(tmp_path, monkeypatch) -> None:
@@ -248,6 +249,8 @@ def test_api_run_stream_emits_incremental_updates(tmp_path, monkeypatch) -> None
         },
     ) as response:
         assert response.status_code == 200
+        assert response.headers["x-accel-buffering"] == "no"
+        assert response.headers["cache-control"] == "no-store, no-cache, must-revalidate"
         messages = [json.loads(line) for line in response.iter_lines() if line]
 
     assert any(message["event"] == "assessment_ready" for message in messages)

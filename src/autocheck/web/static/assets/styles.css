@@ -323,6 +323,7 @@ button:disabled {
 .metrics,
 .reference-grid,
 .assessment-grid,
+.activity-list,
 .config-groups {
   display: grid;
   gap: 14px;
@@ -336,6 +337,7 @@ button:disabled {
 .metric,
 .reference-card,
 .assessment-card,
+.activity-item,
 .config-group {
   padding: 16px;
   border-radius: 20px;
@@ -382,6 +384,48 @@ button:disabled {
   background: rgba(255, 255, 255, 0.76);
   border: 1px solid var(--line);
   overflow-wrap: anywhere;
+}
+
+.activity-list {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.activity-item {
+  display: grid;
+  gap: 8px;
+}
+
+.activity-meta {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.activity-kind {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(29, 26, 22, 0.08);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.activity-item p {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.6;
+}
+
+.activity-item time {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .assessment-head {

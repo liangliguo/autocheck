@@ -25,6 +25,18 @@ PipelineFactory = Callable[[AppSettings], AutoCheckPipeline]
 _ALLOWED_INPUT_SUFFIXES = {".pdf", ".txt", ".md"}
 
 
+class NoCacheStaticFiles(StaticFiles):
+    def is_not_modified(self, response_headers, request_headers) -> bool:  # type: ignore[override]
+        return False
+
+    def file_response(self, full_path, stat_result, scope, status_code: int = 200):  # type: ignore[override]
+        response = super().file_response(full_path, stat_result, scope, status_code=status_code)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
+
 class RecentReportsResponse(BaseModel):
     recent_reports: list[str]
 
@@ -50,15 +62,29 @@ def create_app(
     app.state.config_service = ConfigService(project_root=resolved_settings.project_root)
 
     static_dir = _static_dir()
-    app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
+    app.mount("/assets", NoCacheStaticFiles(directory=static_dir / "assets"), name="assets")
 
     @app.get("/", response_class=FileResponse)
     def index() -> FileResponse:
-        return FileResponse(static_dir / "index.html")
+        return FileResponse(
+            static_dir / "index.html",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     @app.get("/config", response_class=FileResponse)
     def config_page() -> FileResponse:
-        return FileResponse(static_dir / "config.html")
+        return FileResponse(
+            static_dir / "config.html",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     @app.get("/api/reports/recent", response_model=RecentReportsResponse)
     def recent_reports(request: Request) -> RecentReportsResponse:
@@ -179,7 +205,16 @@ def create_app(
             except Exception as exc:
                 yield _json_line({"type": "error", "message": str(exc) or type(exc).__name__})
 
-        return StreamingResponse(iter_stream(), media_type="application/x-ndjson")
+        return StreamingResponse(
+            iter_stream(),
+            media_type="application/x-ndjson",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @app.get("/api/export/workspace/{workspace_name}")
     def export_workspace(workspace_name: str, request: Request) -> StreamingResponse:
